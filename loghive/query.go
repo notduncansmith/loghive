@@ -8,9 +8,23 @@ import (
 	badger "github.com/dgraph-io/badger"
 )
 
+// Query is a set of parameters for querying logs
+type Query struct {
+	Filter  func(*Log) bool
+	Domains []string
+	Start   time.Time
+	End     time.Time
+	Results chan *Log
+}
+
 type si struct {
 	*Segment
 	*badger.Iterator
+}
+
+// NewQuery validates and builds a query from the given parameters
+func NewQuery(filter func(*Log) bool, domains []string, start time.Time, end time.Time) (*Query, error) {
+	return &Query{filter, domains, start, end, nil}, nil
 }
 
 func multiread(segments []*Segment, results chan *Log, start, end time.Time) error {
@@ -90,11 +104,11 @@ func allIteratorsOutOfRange(its []*si, end time.Time) bool {
 	return outOfRange == len(its)
 }
 
-func decodeKey(key []byte) time.Time {
+func decodeKey(bz []byte) time.Time {
 	t := time.Time{}
-	err := t.UnmarshalText(key)
+	err := t.UnmarshalText(bz)
 	if err != nil {
-		panic("Error decoding key: " + string(key) + ": " + err.Error())
+		panic("Error decoding key: " + string(bz) + ": " + err.Error())
 	}
 	return t
 }
@@ -102,7 +116,7 @@ func decodeKey(key []byte) time.Time {
 func encodeTime(t time.Time) []byte {
 	bz, err := t.MarshalText()
 	if err != nil {
-		panic("Error decoding key: " + string(bz) + ": " + err.Error())
+		panic("Error encoding key: " + t.String() + ": " + err.Error())
 	}
 	return bz
 }

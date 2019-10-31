@@ -1,7 +1,11 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/notduncansmith/loghive/loghive"
+)
 
 func main() {
-	fmt.Println("Hello")
+	fmt.Printf("%v\n", loghive.NewLog("main", []byte("'allo")))
 }

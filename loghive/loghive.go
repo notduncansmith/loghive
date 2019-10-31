@@ -11,18 +11,6 @@ import (
 	badger "github.com/dgraph-io/badger"
 )
 
-// Log is a single log line within a domain
-type Log struct {
-	Domain    string    `json:"domain"`
-	Timestamp time.Time `json:"timestamp"`
-	Line      []byte    `json:"line"`
-}
-
-// NewLog constructs a timestamped Log from a domain and line
-func NewLog(domain string, line []byte) Log {
-	return Log{domain, time.Now(), line}
-}
-
 // Segment is a file that represents a contiguous subset of logs in a domain
 type Segment struct {
 	Path      string    `json:"path"`
@@ -35,15 +23,6 @@ type Segment struct {
 type Segments map[string][]*Segment
 
 const segmentFilePrefix = "segment--"
-
-// Query is a set of parameters for querying logs
-type Query struct {
-	Filter  func(*Log) bool
-	Domains []string
-	Start   time.Time
-	End     time.Time
-	Results chan *Log
-}
 
 // Hive is a running Loghive process pointed at a storage path
 type Hive struct {
@@ -78,10 +57,29 @@ func (h *Hive) Start() error {
 	return nil
 }
 
+// ValidateQuery will return any error with a query's parameters
+func (h *Hive) ValidateQuery(query Query) error {
+	for _, d := range query.Domains {
+		if !h.domainAllowed(d) {
+			return errInvalidQuery("invalid domain: " + d)
+		}
+	}
+
+	if query.Start.Before(query.Start) {
+		return errInvalidQuery("start " + query.Start.String() + " before end " + query.End.String())
+	}
+
+	return nil
+}
+
 // Query reads logs matching a query from one or more databases
 func (h *Hive) Query(query Query, queueSize int) error {
 	if !h.Started {
 		return errNotStarted()
+	}
+
+	if err := h.ValidateQuery(query); err != nil {
+		return err
 	}
 
 	segments := []*Segment{}
@@ -142,21 +140,6 @@ func (h *Hive) Enqueue(domain string, line []byte) error {
 
 	h.Queue <- Log{domain, timestampNowSeconds(), line}
 	return nil
-}
-
-// BuildQuery validates and builds a query from the given parameters
-func (h *Hive) BuildQuery(filter func(*Log) bool, domains []string, start time.Time, end time.Time) (*Query, error) {
-	for _, d := range domains {
-		if !h.domainAllowed(d) {
-			return nil, errInvalidQuery("invalid domain: " + d)
-		}
-	}
-
-	if start.Before(end) {
-		return nil, errInvalidQuery("start " + start.String() + " before end " + end.String())
-	}
-
-	return &Query{filter, domains, start, end, nil}, nil
 }
 
 // DomainPath constructs the full path to the directory for a Domain
