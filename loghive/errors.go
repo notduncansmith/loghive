@@ -10,8 +10,12 @@ func errNotStarted() error {
 	return errors.New("Hive not started")
 }
 
-func errDirUnreachable(dir string, reason string) error {
-	return errors.New("Directory " + dir + " cannot be opened (" + reason + ")")
+func errUnableToLoadConfig(reason string) error {
+	return errors.New("Unable to load config: " + reason)
+}
+
+func errUnreachable(path string, reason string) error {
+	return errors.New("File or directory " + path + " cannot be opened (" + reason + ")")
 }
 
 func errQueueFull() error {
@@ -22,8 +26,8 @@ func errInvalidSegmentFilename(filename string) error {
 	return errors.New("Invalid segment filename: " + filename)
 }
 
-func errUnableToOpenSegment(filename string, reason string) error {
-	return errors.New("Unable to open segment: " + filename + " (" + reason + ")")
+func errUnableToOpenFile(filename string, reason string) error {
+	return errors.New("Unable to open file: " + filename + " (" + reason + ")")
 }
 
 func errInvalidLogDomain(domain string) error {
@@ -31,7 +35,7 @@ func errInvalidLogDomain(domain string) error {
 }
 
 func errUnableToBackfill(domain string, timestamp time.Time) error {
-	return errors.New("Attempted to backfill log in domain " + domain + " with timestamp " + timeToString(timestamp))
+	return errors.New("Attempted to backfill log in domain " + domain + " with timestamp " + string(timeToBytes(timestamp)))
 }
 
 func errLineTooLarge(count, max int) error {
