@@ -11,9 +11,9 @@ type Log struct {
 
 // NewLog constructs a timestamped Log from a domain and line
 func NewLog(domain string, line []byte) *Log {
-	return &Log{domain, time.Now(), line}
+	return &Log{domain, timestampNow(), line}
 }
 
 func (l *Log) String() string {
-	return "Log{" + timeToString(l.Timestamp) + ", " + l.Domain + ", <<" + string(l.Line) + ">>}"
+	return "Log{" + string(timeToBytes(l.Timestamp)) + ", " + l.Domain + ", <<" + string(l.Line) + ">>}"
 }

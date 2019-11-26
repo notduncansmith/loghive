@@ -6,10 +6,6 @@ import (
 	"time"
 )
 
-func errNotStarted() error {
-	return errors.New("Hive not started")
-}
-
 func errUnableToLoadConfig(reason string) error {
 	return errors.New("Unable to load config: " + reason)
 }
