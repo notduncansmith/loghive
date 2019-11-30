@@ -39,8 +39,8 @@ func (c *Config) SegmentMaxDuration() time.Duration {
 }
 
 // SegmentMaxBytes gets the `segmentMaxBytes` value from the config map
-func (c *Config) SegmentMaxBytes() int {
-	return c.m["SegmentMaxBytes"].(int)
+func (c *Config) SegmentMaxBytes() int64 {
+	return c.m["SegmentMaxBytes"].(int64)
 }
 
 // LineMaxBytes gets the `lineMaxBytes` value from the config map

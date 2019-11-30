@@ -17,3 +17,8 @@ func NewLog(domain string, line []byte) *Log {
 func (l *Log) String() string {
 	return "Log{" + string(timeToBytes(l.Timestamp)) + ", " + l.Domain + ", <<" + string(l.Line) + ">>}"
 }
+
+// Order implements march.Ordered
+func (l *Log) Order() int64 {
+	return l.Timestamp.UnixNano()
+}

@@ -1,10 +1,13 @@
 package loghive
 
 import (
+	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/vmihailenco/msgpack"
@@ -15,6 +18,7 @@ import (
 
 const segmentMetaKey = "_meta"
 const segmentFilenamePrefix = "segment-"
+const segmentDir = ".data"
 
 // Segment is a file that represents a contiguous subset of logs in a domain starting at a timestamp
 type Segment struct {
@@ -29,13 +33,6 @@ type DBMap = map[string]*badger.DB
 // SegmentMap is a map of Segments by Domain
 type SegmentMap = map[string][]Segment
 
-// LogWriteFailure provides information about why a log was not written
-type LogWriteFailure struct {
-	Err   error `json:"err"`
-	Log   Log   `json:"log"`
-	Count int   `json:"count"`
-}
-
 // SegmentManager manages connections to Segments in BadgerDBs
 type SegmentManager struct {
 	*mutable.RW
@@ -46,22 +43,34 @@ type SegmentManager struct {
 
 // NewSegmentManager creates a new SegmentManager for a specified path
 func NewSegmentManager(path string) *SegmentManager {
-	return &SegmentManager{mutable.NewRW("SegmentManager"), DBMap{}, SegmentMap{}, path}
+	return &SegmentManager{mutable.NewRW("SegmentManager"), DBMap{}, SegmentMap{}, filepath.Join(path, segmentDir)}
 }
 
 // ScanDir scans the directory at `m.Path` for segment DB files and opens them
 func (m *SegmentManager) ScanDir() ([]Segment, error) {
+	_, err := os.Stat(m.Path)
+	if err != nil {
+		fmt.Println("Creating " + m.Path)
+		err = os.Mkdir(m.Path, 0600)
+	}
+	if err != nil {
+		return nil, err
+	}
+
 	files, err := ioutil.ReadDir(m.Path)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
+	fmt.Printf("Scanned path %v, found %v files", m.Path, len(files))
 
 	segments := make([]Segment, len(files))
 	for i, file := range files {
+		fmt.Printf("Reading segment #%v meta from %v", i, file.Name())
 		segments[i], err = m.readSegmentMeta(file.Name())
 		if err != nil {
 			return nil, err
 		}
+		fmt.Println(segments[i])
 	}
 
 	sort.Slice(segments, func(a, b int) bool {
@@ -81,12 +90,16 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 }
 
 // Write stores a group of logs in their appropriate segment files, reporting any failures on a given channel
-func (m *SegmentManager) Write(logs []Log, errs chan LogWriteFailure) {
+func (m *SegmentManager) Write(logs []Log) []LogWriteFailure {
+	errs := []LogWriteFailure{}
+	mut := mutable.NewRW("errs")
+
+	// first we batch each segment's logs together...
 	segmentLogs := map[string][]Log{}
 	for _, log := range logs {
 		s, err := m.segmentForLog(&log)
 		if err != nil {
-			errs <- LogWriteFailure{err, log, 1}
+			errs = append(errs, LogWriteFailure{err, log, 1})
 			continue
 		}
 		if segmentLogs[s.Path] == nil {
@@ -95,24 +108,33 @@ func (m *SegmentManager) Write(logs []Log, errs chan LogWriteFailure) {
 		segmentLogs[s.Path] = append(segmentLogs[s.Path], log)
 	}
 
+	// ...then write each batch
+	wg := sync.WaitGroup{}
 	for path, logs := range segmentLogs {
+		wg.Add(1)
 		go func(p string, l []Log) {
 			err := m.writeSegmentLogs(p, l)
 			if err != nil {
-				errs <- LogWriteFailure{err, l[0], len(l)}
+				mut.DoWithRWLock(func() {
+					errs = append(errs, LogWriteFailure{err, l[0], len(l)})
+				})
 			}
+			wg.Done()
 		}(path, logs)
 	}
+	wg.Wait()
+
+	return errs
 }
 
-// Iterate takes a list of domains and a range of time, returning a list of channels on which chunks of the requested size will be delivered
+// Iterate takes a list of domains and a range of time, returning a list of channels (one per domain) on which chunks of the requested size will be delivered
 func (m *SegmentManager) Iterate(domains []string, start, end time.Time, chunkSize int, bufferSize int) []chan []Log {
 	chunkChans := make([]chan []Log, len(domains))
 
 	for idx, domain := range domains {
 		chunkChans[idx] = make(chan []Log, bufferSize)
 		go func(i int, d string) {
-			for _, segment := range m.segmentsInRange(domain, start, end) {
+			for _, segment := range m.segmentsInRange(d, start, end) {
 				go func(s Segment) {
 					err := m.segmentChunks(d, s.Path, chunkSize, start, end, chunkChans[i])
 					if err != nil {
@@ -146,7 +168,51 @@ func (m *SegmentManager) CreateSegment(domain string, timestamp time.Time) (Segm
 		return tx.Set([]byte(segmentMetaKey), bz)
 	})
 
+	m.DoWithRWLock(func() {
+		cur := m.SegmentMap[segment.Domain]
+		if cur == nil {
+			m.SegmentMap[segment.Domain] = []Segment{segment}
+		} else {
+			m.SegmentMap[segment.Domain] = append(cur, segment)
+		}
+	})
+
 	return segment, err
+}
+
+// CreateNeededSegments checks the latest segment in each domain and if any exceed the given constraints, a new segment is created in that domain
+func (m *SegmentManager) CreateNeededSegments(maxBytes int64, maxDuration time.Duration) error {
+	now := time.Now()
+	errs := []error{}
+
+	for domain, segments := range m.SegmentMap {
+		latest := segments[len(segments)-1]
+		if latest.Timestamp.Add(maxDuration).Before(now) {
+			_, err := m.CreateSegment(domain, now)
+			if err != nil {
+				errs = append(errs)
+				continue
+			}
+		}
+		f, err := os.Stat(latest.Path)
+		if err != nil {
+			errs = append(errs)
+			continue
+		}
+		if f.Size() > maxBytes {
+			_, err := m.CreateSegment(domain, now)
+			if err != nil {
+				errs = append(errs)
+				continue
+			}
+		}
+	}
+
+	if len(errs) > 0 {
+		return coalesceErrors("Create Needed Segments", errs)
+	}
+
+	return nil
 }
 
 // readSegmentMeta fetches the metadata stored in a segment DB
@@ -243,7 +309,7 @@ func (m *SegmentManager) segmentChunks(domain, path string, chunkSize int, start
 
 // openDB opens a DB at a path, or returns one that has already been opened
 func (m *SegmentManager) openDB(path string) (*badger.DB, error) {
-	fullPath := filepath.Join(m.Path, path)
+	fullPath := filepath.Join(path)
 	var db *badger.DB
 
 	m.DoWithRLock(func() {
@@ -257,7 +323,7 @@ func (m *SegmentManager) openDB(path string) (*badger.DB, error) {
 	db, err := badger.Open(badger.DefaultOptions(fullPath))
 
 	if err != nil {
-		return nil, errUnableToOpenFile(fullPath, err.Error())
+		return nil, errUnreachable(fullPath, err.Error())
 	}
 
 	m.DoWithRWLock(func() {

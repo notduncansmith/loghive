@@ -1,6 +1,7 @@
 package loghive
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/notduncansmith/bbq"
@@ -8,27 +9,32 @@ import (
 	"github.com/notduncansmith/mutable"
 )
 
-// Hive is a running Loghive process pointed at a storage path
+// Hive is a running Loghive instance pointed at a storage path
 type Hive struct {
 	*mutable.RW
-	*DBManager
-	StoragePath    string
-	config         *du.Duramap
-	incoming       *bbq.BatchQueue
-	DomainSegments Segments `json:"segments"`
+	sm          *SegmentManager
+	StoragePath string
+	config      *du.Duramap
+	incoming    *bbq.BatchQueue
 }
 
-// NewHive returns a pointer to a Hive with the given configuration
+// NewHive returns a pointer to a Hive at the given path. Configuration will be loaded from a file found there or populated from defaults.
 func NewHive(path string) (*Hive, error) {
-	dbm := NewDBManager(path)
+	sm := NewSegmentManager(path)
 	mut := mutable.NewRW("Hive[" + path + "]")
-	h := &Hive{mut, dbm, path, nil, nil, Segments{}}
+	h := &Hive{mut, sm, path, nil, nil}
 	h.incoming = bbq.NewBatchQueue(h.flush, bbq.DefaultOptions)
 	config, err := h.loadConfig()
+	fmt.Printf("Loaded config: %v\n", config)
 	if err != nil {
 		return nil, err
 	}
 	h.config = config
+	segments, err := sm.ScanDir()
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("Loaded %v segments\n", len(segments))
 	return h, nil
 }
 
@@ -53,37 +59,33 @@ func (h *Hive) DoWithConfig(f func(Config)) {
 }
 
 // UpdateConfig acquires a read-write lock on the config and calls f with it
-func (h *Hive) UpdateConfig(f func(Config) Config) {
-	h.config.UpdateMap(func(m du.GenericMap) du.GenericMap {
+func (h *Hive) UpdateConfig(f func(Config) Config) error {
+	return h.config.UpdateMap(func(m du.GenericMap) du.GenericMap {
 		return f(Config{m}).m
 	})
 }
 
-// flush converts bbq interface{} items to *Logs and writes them
+// flush converts bbq interface{} items to *Logs and writes them, then creates any needed segments
 func (h *Hive) flush(items []interface{}) error {
-	logs := []*Log{}
+	logs := []Log{}
 	for _, i := range items {
 		log, _ := i.(Log)
-		logs = append(logs, &log)
+		logs = append(logs, log)
 	}
-	return h.write(logs)
-}
-
-// write appends logs to segments
-func (h *Hive) write(logs []*Log) error {
-	batches := map[string][]*Log{}
-
-	for _, l := range logs {
-		batches[l.Domain] = append(batches[l.Domain], l)
+	errs := h.sm.Write(logs)
+	if len(errs) > 0 {
+		return coalesceLogWriteFailures(errs)
 	}
 
-	// TODO: write with SegmentManager
+	h.DoWithConfig(func(c Config) {
+		h.sm.CreateNeededSegments(c.SegmentMaxBytes(), c.SegmentMaxDuration())
+	})
 
 	return nil
 }
 
 func (h *Hive) loadConfig() (*du.Duramap, error) {
-	path := filepath.Join(h.Path, ConfigFilename)
+	path := filepath.Join(h.StoragePath, ConfigFilename)
 	dm, err := du.NewDuramap(path, "config")
 	if err != nil {
 		return nil, errUnableToLoadConfig(errUnreachable(path, err.Error()).Error())

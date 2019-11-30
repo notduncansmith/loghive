@@ -29,6 +29,8 @@ github.com/notduncansmith/bbq v0.0.0-20191115054034-8883f43a59cf h1:+B8kWEcoXv81
 github.com/notduncansmith/bbq v0.0.0-20191115054034-8883f43a59cf/go.mod h1:H0eHiwykBI+nO7qE3kH2hKoF1+XD/u++pDMVbCnDu0c=
 github.com/notduncansmith/duramap v0.0.0-20191108045148-9c43fc9e05c8 h1:oizCCHyBWzvfbIOkMIvRtVzc0fq4EWMofxkDy+IHFws=
 github.com/notduncansmith/duramap v0.0.0-20191108045148-9c43fc9e05c8/go.mod h1:wovmuuKpCZetbYRuC0mGIjZC61h8DBan2BRXywbYlUw=
+github.com/notduncansmith/march v0.0.0-20191124014550-3d65a3b702ad h1:jnd7eeovY59JO2GwTmC/0jhGwBRmc34WGJip0rSFL4M=
+github.com/notduncansmith/march v0.0.0-20191124014550-3d65a3b702ad/go.mod h1:eMHpBidu2at1VwyU2ySgXnG0O89VYM1b7nG9Zd2NgFM=
 github.com/notduncansmith/mutable v0.0.0-20191105072558-a13a78d07b91 h1:B4WiScuDn9FK9MEG4rQ2q+AnR/uPgnEQezml2rbYE9A=
 github.com/notduncansmith/mutable v0.0.0-20191105072558-a13a78d07b91/go.mod h1:FSP687EO4iKB5iYam28rPwVr5LYf+SACbK0N1D6aFC4=
 github.com/pelletier/go-toml v1.2.0/go.mod h1:5z9KED0ma1S8pY6P1sdut58dfprrGBbd/94hg7ilaic=
