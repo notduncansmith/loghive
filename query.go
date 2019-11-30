@@ -1,8 +1,10 @@
 package loghive
 
 import (
-	"github.com/notduncansmith/march"
+	"strings"
 	"time"
+
+	"github.com/notduncansmith/march"
 )
 
 // Query is a set of parameters for querying logs
@@ -11,12 +13,12 @@ type Query struct {
 	Start   time.Time
 	End     time.Time
 	Filter  func(*Log) bool
-	Results chan march.Ordered
+	Results chan *Log
 }
 
 // NewQuery validates and builds a query from the given parameters
 func NewQuery(domains []string, start time.Time, end time.Time, filter func(*Log) bool) *Query {
-	return &Query{domains, start, end, filter, make(chan march.Ordered, 1024)}
+	return &Query{domains, start, end, filter, make(chan *Log)}
 }
 
 // ValidateQuery will return any error with a query's parameters
@@ -35,8 +37,8 @@ func (h *Hive) ValidateQuery(query *Query) error {
 }
 
 // Query will return the results of a query on a channel
-func (h *Hive) Query(q Query) error {
-	err := h.ValidateQuery(&q)
+func (h *Hive) Query(q *Query) error {
+	err := h.ValidateQuery(q)
 	if err != nil {
 		return err
 	}
@@ -56,5 +58,37 @@ func (h *Hive) Query(q Query) error {
 	}
 	orderedResultChan := make(chan march.Ordered)
 	go march.March(unorderedResultChans, orderedResultChan)
+	go logify(orderedResultChan, q.Results)
 	return nil
+}
+
+// FilterExactString takes a string and returns a filter matching lines with exactly that string
+func FilterExactString(s string) func(l *Log) bool {
+	return func(l *Log) bool {
+		return string(l.Line) == s
+	}
+}
+
+// FilterContainsString takes a string and returns a filter matching lines containing that string
+func FilterContainsString(s string) func(l *Log) bool {
+	return func(l *Log) bool {
+		return strings.Contains(string(l.Line), s)
+	}
+}
+
+// FilterMatchAll returns a filter matching all logs
+func FilterMatchAll() func(l *Log) bool {
+	return func(l *Log) bool {
+		return true
+	}
+}
+
+func logify(och chan march.Ordered, lch chan *Log) {
+	for o := range och {
+		log, ok := o.(*Log)
+		if ok {
+			lch <- log
+		}
+	}
+	close(lch)
 }
