@@ -7,13 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/vmihailenco/msgpack"
-
 	"github.com/dgraph-io/badger"
 	"github.com/notduncansmith/mutable"
+	"github.com/vmihailenco/msgpack"
 )
 
 const segmentMetaKey = "_meta"
@@ -46,12 +46,19 @@ func NewSegmentManager(path string) *SegmentManager {
 	return &SegmentManager{mutable.NewRW("SegmentManager"), DBMap{}, SegmentMap{}, filepath.Join(path, segmentDir)}
 }
 
+// Close closes all managed DBs
+func (m *SegmentManager) Close() {
+	for _, db := range m.DBMap {
+		db.Close()
+	}
+}
+
 // ScanDir scans the directory at `m.Path` for segment DB files and opens them
 func (m *SegmentManager) ScanDir() ([]Segment, error) {
 	_, err := os.Stat(m.Path)
 	if err != nil {
 		fmt.Println("Creating " + m.Path)
-		err = os.Mkdir(m.Path, 0600)
+		err = os.MkdirAll(m.Path, 0700)
 	}
 	if err != nil {
 		return nil, err
@@ -61,11 +68,15 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("Scanned path %v, found %v files", m.Path, len(files))
+	fmt.Printf("Scanned path %v, found %v files\n", m.Path, len(files))
 
 	segments := make([]Segment, len(files))
 	for i, file := range files {
-		fmt.Printf("Reading segment #%v meta from %v", i, file.Name())
+		if !strings.HasPrefix(file.Name(), segmentFilenamePrefix) {
+			fmt.Printf("Skipping non-segment file %v\n", file.Name())
+			continue
+		}
+		fmt.Printf("Reading segment #%v meta from %v\n", i, file.Name())
 		segments[i], err = m.readSegmentMeta(file.Name())
 		if err != nil {
 			return nil, err
@@ -89,7 +100,7 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 	return segments, err
 }
 
-// Write stores a group of logs in their appropriate segment files, reporting any failures on a given channel
+// Write stores a group of logs in their appropriate segment files, returning any failures
 func (m *SegmentManager) Write(logs []Log) []LogWriteFailure {
 	errs := []LogWriteFailure{}
 	mut := mutable.NewRW("errs")
@@ -134,14 +145,16 @@ func (m *SegmentManager) Iterate(domains []string, start, end time.Time, chunkSi
 	for idx, domain := range domains {
 		chunkChans[idx] = make(chan []Log, bufferSize)
 		go func(i int, d string) {
-			for _, segment := range m.segmentsInRange(d, start, end) {
-				go func(s Segment) {
-					err := m.segmentChunks(d, s.Path, chunkSize, start, end, chunkChans[i])
-					if err != nil {
-						log.Println(err)
-						return
-					}
-				}(segment)
+			defer close(chunkChans[i])
+			segments := m.segmentsInRange(d, start, end)
+			fmt.Printf("Segments in range: %v\n", segments)
+			for _, segment := range segments {
+				fmt.Printf("Iterating segment %v @ %v\n", segment.Domain, segment.Path)
+				err := m.segmentChunks(d, segment.Path, chunkSize, start, end, chunkChans[i])
+				if err != nil {
+					log.Println(err)
+					return
+				}
 			}
 		}(idx, domain)
 	}
@@ -276,30 +289,34 @@ func (m *SegmentManager) segmentChunks(domain, path string, chunkSize int, start
 		opts := badger.DefaultIteratorOptions
 		opts.PrefetchValues = false // key-only iteration
 		it := txn.NewIterator(opts)
-		bz, err := start.MarshalBinary()
-		if err != nil {
-			return err
-		}
-		chunk := make([]Log, chunkSize)
-		for it.Seek(bz); it.Valid(); it.Next() {
+		defer it.Close()
+		chunk := []Log{}
+		for it.Seek(timeToBytes(start)); it.Valid(); it.Next() {
+			fmt.Printf("Chunk size: %v\n", len(chunk))
 			keytime := time.Time{}
-			kerr := keytime.UnmarshalBinary(it.Item().Key())
+			kerr := keytime.UnmarshalText(it.Item().Key())
 			if kerr != nil {
+				fmt.Println("Error unmarshaling keytime", kerr)
 				return err
 			}
+			fmt.Printf("Iterator at keytime %v\n", keytime)
 			if keytime.Before(end) {
+				fmt.Println("In range")
 				return it.Item().Value(func(val []byte) error {
 					chunk = append(chunk, Log{domain, keytime, val})
 					if len(chunk) == chunkSize {
+						fmt.Println("Chunking", chunk)
 						chunks <- chunk
-						chunk = make([]Log, chunkSize)
+						chunk = []Log{}
 					}
 					return nil
 				})
 			}
+			fmt.Println("Not in range")
 		}
 
 		if len(chunk) > 0 {
+			fmt.Printf("Leftover chunk values, chunking (%v)", len(chunk))
 			chunks <- chunk
 		}
 

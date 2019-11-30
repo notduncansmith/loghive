@@ -54,6 +54,7 @@ func (h *Hive) Query(q *Query) error {
 					}
 				}
 			}
+			close(unorderedResultChans[i])
 		}(idx, channel)
 	}
 	orderedResultChan := make(chan march.Ordered)
