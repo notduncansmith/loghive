@@ -4,10 +4,6 @@ import (
 	"time"
 )
 
-func timestampNowSeconds() time.Time {
-	return timestampNow().Round(0)
-}
-
 func timestampNow() time.Time {
 	return time.Now().UTC()
 }
