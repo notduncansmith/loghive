@@ -134,3 +134,56 @@ func TestEnqueueValidation(t *testing.T) {
 		t.Errorf("Should not be able to log line of %v bytes", 9*1024)
 	}
 }
+
+func TestQueryValidation(t *testing.T) {
+	h := hive(t, "./fixtures/roundtrip_query", []string{"test"})
+
+	oneMinuteFromNow := time.Now().Add(time.Duration(1) * time.Minute)
+	twoMinutesFromNow := time.Now().Add(time.Duration(2) * time.Minute)
+	err := h.Query(NewQuery([]string{"test"}, oneMinuteFromNow, twoMinutesFromNow, FilterMatchAll()))
+	if err == nil {
+		t.Error("Should not be able to query the future")
+	}
+
+	oneMinuteAgo := time.Now().Add(time.Duration(-1) * time.Minute)
+	twoMinutesAgo := time.Now().Add(time.Duration(-2) * time.Minute)
+	err = h.Query(NewQuery([]string{"test"}, oneMinuteAgo, twoMinutesAgo, FilterMatchAll()))
+	if err == nil {
+		t.Error("Should not be able to query start after end")
+	}
+
+	err = h.Query(NewQuery([]string{"nonexistentDomain"}, twoMinutesAgo, oneMinuteAgo, FilterMatchAll()))
+	if err == nil {
+		t.Error("Should not be able to query nonexistent domain")
+	}
+}
+
+func TestQueryFilters(t *testing.T) {
+	h := hive(t, "./fixtures/roundtrip_query", []string{"test"})
+	stubLogs(t, h, []logstub{
+		logstub{"test", "foo"},
+	})
+
+	oneMinuteAgo := time.Now().Add(time.Duration(-1) * time.Minute)
+
+	queries := []*Query{
+		NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterMatchAll()),
+		NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterExactString("foo")),
+		NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterContainsString("f")),
+	}
+
+	for _, q := range queries {
+		checkResults(t, h, q, []logstub{
+			logstub{"test", "foo"},
+		})
+	}
+
+	negativeQueries := []*Query{
+		NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterExactString("hello")),
+		NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterContainsString("h")),
+	}
+
+	for _, q := range negativeQueries {
+		checkResults(t, h, q, []logstub{})
+	}
+}
