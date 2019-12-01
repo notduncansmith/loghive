@@ -56,8 +56,6 @@ func TestRoundtripQuery(t *testing.T) {
 	defer os.RemoveAll(path)
 	config := DefaultConfig
 	config.WritableDomains = []string{"test"}
-	config.FlushAfterItems = 1
-	config.FlushAfterDuration = time.Duration(0)
 	h, err := NewHive(path, config)
 	if err != nil {
 		t.Errorf("Should be able to create hive: %v", err)
@@ -67,8 +65,8 @@ func TestRoundtripQuery(t *testing.T) {
 		t.Errorf("Should be able to enqueue message: %v", err)
 	}
 	<-flushed
-	secondsAgo := time.Now().Add(time.Duration(-5) * time.Minute)
-	q := NewQuery([]string{"test"}, secondsAgo, time.Now(), FilterMatchAll())
+	oneMinuteAgo := time.Now().Add(time.Duration(-1) * time.Minute)
+	q := NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterMatchAll())
 	go func() {
 		err = h.Query(q)
 		if err != nil {

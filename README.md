@@ -27,7 +27,42 @@ Logs can be queried by domain, timestamp, and line contents. Queries that span m
 ## Usage
 
 ```go
-/* TODO */
+func TestRoundtripQuery(t *testing.T) {
+	path := "./fixtures/roundtrip_query"
+	os.RemoveAll(path)
+	defer os.RemoveAll(path)
+	config := DefaultConfig
+	config.WritableDomains = []string{"test"}
+	h, err := NewHive(path, config)
+	if err != nil {
+		t.Errorf("Should be able to create hive: %v", err)
+	}
+	flushed, err := h.Enqueue("test", []byte("foo"))
+	if err != nil {
+		t.Errorf("Should be able to enqueue message: %v", err)
+	}
+	<-flushed
+	oneMinuteAgo := time.Now().Add(time.Duration(-1) * time.Minute)
+	q := NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterMatchAll())
+	go func() {
+		err = h.Query(q)
+		if err != nil {
+			t.Errorf("Should be able to execute query %v %v", q, err)
+		}
+	}()
+
+	gotResults := false
+	for log := range q.Results {
+		gotResults = true
+		fmt.Printf("Result 1: %v\n", log)
+		if string(log.Line) != "foo" {
+			t.Errorf("Expected line 'foo', got '%v'", string(log.Line))
+		}
+	}
+	if !gotResults {
+		t.Error("Expected to get results")
+	}
+}
 ```
 
 ## License
