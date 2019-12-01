@@ -7,12 +7,6 @@ import (
 	"time"
 )
 
-func expectSuccess(t *testing.T, task string, err error) {
-	if err != nil {
-		t.Errorf("Should be able to %v: %v", task, err)
-	}
-}
-
 func withSM(t *testing.T, path string, f func([]Segment, *SegmentManager)) {
 	sm := NewSegmentManager(path)
 	segments, err := sm.ScanDir()
