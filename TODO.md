@@ -30,6 +30,8 @@
 
     - [ ] More than 1 segment per domain during scan
 
+    - [ ] Sorting query results during delivery
+
 - [ ] Untested Sad Paths:
 
     - [ ] Err creating segment during flush
