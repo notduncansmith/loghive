@@ -101,39 +101,44 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 }
 
 // Write stores a group of logs in their appropriate segment files, returning any failures
-func (m *SegmentManager) Write(logs []Log) []LogWriteFailure {
+func (m *SegmentManager) Write(logs []*Log) []LogWriteFailure {
 	errs := []LogWriteFailure{}
 	mut := mutable.NewRW("errs")
 
 	// first we batch each segment's logs together...
-	segmentLogs := map[string][]Log{}
+	segmentLogs := map[string][]*Log{}
 	for _, log := range logs {
-		s, err := m.segmentForLog(&log)
+		s, err := m.segmentForLog(log)
 		if err != nil {
-			errs = append(errs, LogWriteFailure{err, log, 1})
+			errs = append(errs, LogWriteFailure{err, *log, 1})
 			continue
 		}
 		if segmentLogs[s.Path] == nil {
-			segmentLogs[s.Path] = []Log{}
+			segmentLogs[s.Path] = []*Log{}
 		}
 		segmentLogs[s.Path] = append(segmentLogs[s.Path], log)
 	}
+
+	fmt.Println("Segment batches to write", segmentLogs, errs)
 
 	// ...then write each batch
 	wg := sync.WaitGroup{}
 	for path, logs := range segmentLogs {
 		wg.Add(1)
-		go func(p string, l []Log) {
+		fmt.Println("Writing batch at path " + path)
+		go func(p string, l []*Log) {
 			err := m.writeSegmentLogs(p, l)
 			if err != nil {
+				fmt.Println("Log write failure", err)
 				mut.DoWithRWLock(func() {
-					errs = append(errs, LogWriteFailure{err, l[0], len(l)})
+					errs = append(errs, LogWriteFailure{err, *l[0], len(l)})
 				})
 			}
 			wg.Done()
 		}(path, logs)
 	}
 	wg.Wait()
+	fmt.Printf("Wrote %v logs\n", len(logs))
 
 	return errs
 }
@@ -201,6 +206,7 @@ func (m *SegmentManager) CreateNeededSegments(maxBytes int64, maxDuration time.D
 	for domain, segments := range m.SegmentMap {
 		latest := segments[len(segments)-1]
 		if latest.Timestamp.Add(maxDuration).Before(now) {
+			fmt.Printf("Segment %v too old, creating new segment\n", latest.Path)
 			_, err := m.CreateSegment(domain, now)
 			if err != nil {
 				errs = append(errs)
@@ -213,6 +219,7 @@ func (m *SegmentManager) CreateNeededSegments(maxBytes int64, maxDuration time.D
 			continue
 		}
 		if f.Size() > maxBytes {
+			fmt.Printf("Segment %v too large, creating new segment\n", latest.Path)
 			_, err := m.CreateSegment(domain, now)
 			if err != nil {
 				errs = append(errs)
@@ -251,6 +258,7 @@ func (m *SegmentManager) readSegmentMeta(fileName string) (Segment, error) {
 func (m *SegmentManager) segmentForLog(l *Log) (Segment, error) {
 	domainSegments := m.SegmentMap[l.Domain]
 	if domainSegments == nil {
+		fmt.Println("Invalid domain", *l)
 		return Segment{}, errInvalidLogDomain(l.Domain)
 	}
 
@@ -263,18 +271,19 @@ func (m *SegmentManager) segmentForLog(l *Log) (Segment, error) {
 }
 
 // writeSegmentLogs writes a batch of logs to a segment DB
-func (m *SegmentManager) writeSegmentLogs(path string, logs []Log) error {
+func (m *SegmentManager) writeSegmentLogs(path string, logs []*Log) error {
 	db, err := m.openDB(path)
 	if err != nil {
 		return err
 	}
-	return db.Update(func(txn *badger.Txn) error {
+	return db.Update(func(tx *badger.Txn) error {
 		var err error
 		for _, log := range logs {
-			if err = txn.Set(timeToBytes(log.Timestamp), log.Line); err != nil {
+			if err = tx.Set(timeToBytes(log.Timestamp), log.Line); err != nil {
 				return err
 			}
 		}
+		fmt.Println("Finished writing logs", logs)
 		return nil
 	})
 }
@@ -291,18 +300,24 @@ func (m *SegmentManager) segmentChunks(domain, path string, chunkSize int, start
 		it := txn.NewIterator(opts)
 		defer it.Close()
 		chunk := []Log{}
+		fmt.Println("IT: " + string(timeToBytes(start)))
 		for it.Seek(timeToBytes(start)); it.Valid(); it.Next() {
 			fmt.Printf("Chunk size: %v\n", len(chunk))
+			kbz := it.Item().Key()
+			fmt.Println("IT: " + string(kbz))
+			if string(kbz) == segmentMetaKey {
+				continue
+			}
 			keytime := time.Time{}
-			kerr := keytime.UnmarshalText(it.Item().Key())
+			kerr := keytime.UnmarshalText(kbz)
 			if kerr != nil {
-				fmt.Println("Error unmarshaling keytime", kerr)
+				fmt.Printf("Error unmarshaling keytime %v\n", kerr)
 				return err
 			}
 			fmt.Printf("Iterator at keytime %v\n", keytime)
 			if keytime.Before(end) {
 				fmt.Println("In range")
-				return it.Item().Value(func(val []byte) error {
+				it.Item().Value(func(val []byte) error {
 					chunk = append(chunk, Log{domain, keytime, val})
 					if len(chunk) == chunkSize {
 						fmt.Println("Chunking", chunk)
@@ -311,8 +326,10 @@ func (m *SegmentManager) segmentChunks(domain, path string, chunkSize int, start
 					}
 					return nil
 				})
+			} else {
+				fmt.Println("End of range")
+				break
 			}
-			fmt.Println("Not in range")
 		}
 
 		if len(chunk) > 0 {

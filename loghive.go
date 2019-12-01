@@ -2,6 +2,7 @@ package loghive
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/notduncansmith/bbq"
 	"github.com/notduncansmith/mutable"
@@ -29,7 +30,17 @@ func NewHive(path string, config Config) (*Hive, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("Loaded %v segments\n", len(segments))
+	for _, d := range config.WritableDomains {
+		if sm.SegmentMap[d] == nil {
+			s, err := sm.CreateSegment(d, time.Now())
+			if err != nil {
+				return nil, err
+			}
+			fmt.Printf("Created segment %v for writable domain %v\n", s.Path, d)
+			segments = append(segments, s)
+		}
+	}
+	fmt.Printf("Loaded %v segment(s)\n", len(segments))
 	return h, nil
 }
 
@@ -42,30 +53,29 @@ func (h *Hive) Enqueue(domain string, line []byte) (bbq.Callback, error) {
 	if tooLong := h.lineTooLong(len(line)); tooLong {
 		return nil, errLineTooLarge(len(line), h.config.LineMaxBytes)
 	}
-
-	return h.incoming.Enqueue(NewLog(domain, line)), nil
-}
-
-// DoWithConfig acquires a read lock on the config and calls f with it
-func (h *Hive) DoWithConfig(f func(Config)) {
-	f(h.config)
+	log := NewLog(domain, line)
+	fmt.Printf("Enqueing log %v\n", log)
+	return h.incoming.Enqueue(log), nil
 }
 
 // flush converts bbq interface{} items to *Logs and writes them, then creates any needed segments
 func (h *Hive) flush(items []interface{}) error {
-	logs := []Log{}
+	logs := []*Log{}
 	for _, i := range items {
-		log, _ := i.(Log)
-		logs = append(logs, log)
+		log, ok := i.(*Log)
+		if !ok {
+			fmt.Printf("Unable to cast %v to log\n", i)
+		} else {
+			logs = append(logs, log)
+		}
 	}
+	fmt.Printf("Flushing %v logs\n", len(logs))
 	errs := h.sm.Write(logs)
 	if len(errs) > 0 {
 		return coalesceLogWriteFailures(errs)
 	}
 
-	h.sm.CreateNeededSegments(h.config.SegmentMaxBytes, h.config.SegmentMaxDuration)
-
-	return nil
+	return h.sm.CreateNeededSegments(h.config.SegmentMaxBytes, h.config.SegmentMaxDuration)
 }
 
 func (h *Hive) domainValid(domain string) bool {

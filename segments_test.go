@@ -78,7 +78,7 @@ func TestSegmentManagerWrite(t *testing.T) {
 		log2 := NewLog("test2", []byte("test"))
 		time.Sleep(time.Second)
 
-		errs := sm.Write([]Log{*log1, *log2})
+		errs := sm.Write([]*Log{log1, log2})
 
 		if len(errs) > 0 {
 			t.Errorf("Expected to write logs, got errors %v", errs)
@@ -103,7 +103,7 @@ func TestSegmentManagerRoundtrip(t *testing.T) {
 		log1 := Log{"test1", e1.Add(time.Minute), []byte("hello")}
 		log2 := Log{"test2", e2.Add(time.Minute), []byte("hello")}
 
-		errs := sm.Write([]Log{log1, log2})
+		errs := sm.Write([]*Log{&log1, &log2})
 
 		if len(errs) > 0 {
 			t.Errorf("Expected to write logs, got errors %v", errs)

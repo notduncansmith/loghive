@@ -1,6 +1,7 @@
 package loghive
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -42,24 +43,30 @@ func (h *Hive) Query(q *Query) error {
 	if err != nil {
 		return err
 	}
-	unfilteredResultChans := h.sm.Iterate(q.Domains, q.Start, q.End, 512, 8)
-	unorderedResultChans := make([]chan march.Ordered, len(unfilteredResultChans))
-	for idx, channel := range unfilteredResultChans {
-		unorderedResultChans[idx] = make(chan march.Ordered)
+	fmt.Printf("Iterating domains %v\n", q.Domains)
+	unfilteredDomainResultChans := h.sm.Iterate(q.Domains, q.Start, q.End, 512, 8)
+	unorderedDomainResultChans := make([]chan march.Ordered, len(unfilteredDomainResultChans))
+	for idx, channel := range unfilteredDomainResultChans {
+		unorderedDomainResultChans[idx] = make(chan march.Ordered)
 		go func(i int, chunkChan chan []Log) {
+			defer close(unorderedDomainResultChans[i])
 			for chunk := range chunkChan {
+				fmt.Printf("Got chunk of size %v in domain %v\n", len(chunk), q.Domains[i])
 				for _, log := range chunk {
 					if q.Filter(&log) {
-						unorderedResultChans[i] <- &log
+						fmt.Printf("Log accepted: %v", log)
+						unorderedDomainResultChans[i] <- &log
+					} else {
+						fmt.Printf("Log rejected: %v", log)
 					}
 				}
 			}
-			close(unorderedResultChans[i])
+			fmt.Println("Done with domain " + q.Domains[i])
 		}(idx, channel)
 	}
-	orderedResultChan := make(chan march.Ordered)
-	go march.March(unorderedResultChans, orderedResultChan)
-	go logify(orderedResultChan, q.Results)
+	orderedCrossDomainResultChan := make(chan march.Ordered)
+	go march.March(unorderedDomainResultChans, orderedCrossDomainResultChan)
+	go logify(orderedCrossDomainResultChan, q.Results)
 	return nil
 }
 
