@@ -4,7 +4,21 @@
 
 - [x] Trim unused functionality
 
-- [ ] Replace fmt.Printf/Println with structured/leveled logging
+- [ ] Better usage examples
+
+- [ ] Thorough hosted docs
+
+- [ ] Segment Deletion
+
+    - [ ] `MarkSegmentForDeletion(path string) error`
+
+    - [ ] Do not write to segments marked for deletion
+
+    - [ ] Cannot mark active segment for deletion
+
+    - [ ] `CleanupSegments() error`
+
+- [ ] Replace fmt.Printf/Println with structured/leveled logging (`Debug`, `Info`, `Warn`, `Error`)
 
 - [ ] Untested Happy Paths:
 
