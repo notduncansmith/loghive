@@ -59,6 +59,24 @@ func TestSegmentManagerScan(t *testing.T) {
 			t.Errorf("Incorrect segment path %v", s.Path)
 		}
 	})
+
+	os.RemoveAll("./fixtures/sm_scan_malformed")
+	defer os.RemoveAll("./fixtures/sm_scan_malformed")
+
+	os.MkdirAll("./fixtures/sm_scan_malformed/.data/segment-asdf", 0700)
+	sm := NewSegmentManager("./fixtures/sm_scan_malformed")
+	segments, err := sm.ScanDir()
+	if err == nil || len(segments) > 0 {
+		t.Errorf("Expected to find 0 segments, got %v %v", err, segments)
+	}
+
+	os.RemoveAll("./fixtures/sm_scan_malformed/.data/segment-asdf")
+	os.Create("./fixtures/sm_scan_malformed/.data/segment-asdf")
+	sm = NewSegmentManager("./fixtures/sm_scan_malformed")
+	segments, err = sm.ScanDir()
+	if err == nil || len(segments) > 0 {
+		t.Errorf("Expected to find 0 segments, got %v %v", err, segments)
+	}
 }
 
 func TestSegmentManagerWrite(t *testing.T) {

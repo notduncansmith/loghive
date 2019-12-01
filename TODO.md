@@ -48,6 +48,6 @@
 
     - [ ] Err unable to backfill
 
-    - [ ] Err reading segment as badger DB
+    - [x] Err reading segment as badger DB
 
-    - [ ] Err reading segment metadata
+    - [x] Err reading segment metadata
