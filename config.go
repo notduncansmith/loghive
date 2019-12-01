@@ -7,7 +7,7 @@ import (
 // DefaultConfig is the default configuration, which will be written to the config database if a config is not found
 var DefaultConfig = Config{
 	Debug:              false,
-	WritableDomains:    []string{"_internal"},
+	WritableDomains:    []string{"_"},
 	SegmentMaxDuration: time.Duration(336) * time.Hour, // 336/24=14 days
 	SegmentMaxBytes:    128 * 1024 * 1024,              // 128 MiB
 	LineMaxBytes:       8 * 1024,                       // 8 KiB

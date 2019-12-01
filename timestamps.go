@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-func timestampNow() time.Time {
+func timestamp() time.Time {
 	return time.Now().UTC()
 }
 

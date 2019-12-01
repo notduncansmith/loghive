@@ -7,7 +7,7 @@ import (
 
 func TestQueryValidation(t *testing.T) {
 	h := hive(t, "./fixtures/roundtrip_query", []string{"test"})
-	now := timestampNow()
+	now := timestamp()
 	oneMinuteFromNow := now.Add(time.Duration(1) * time.Minute)
 	twoMinutesFromNow := now.Add(time.Duration(2) * time.Minute)
 	err := h.Query(NewQuery([]string{"test"}, oneMinuteFromNow, twoMinutesFromNow, FilterMatchAll()))
@@ -33,7 +33,7 @@ func TestQueryFilters(t *testing.T) {
 	stubLogs(t, h, []logstub{
 		logstub{"test", "foo"},
 	})
-	now := timestampNow()
+	now := timestamp()
 	oneMinuteAgo := now.Add(time.Duration(-1) * time.Minute)
 
 	queries := []*Query{

@@ -65,10 +65,10 @@ func TestSegmentManagerWrite(t *testing.T) {
 	os.RemoveAll("./fixtures/sm_write")
 	defer os.RemoveAll("./fixtures/sm_write")
 	withSM(t, "./fixtures/sm_write", func(_ []Segment, sm *SegmentManager) {
-		sm.CreateSegment("test1", timestampNow())
+		sm.CreateSegment("test1", timestamp())
 		log1 := NewLog("test1", []byte("test"))
 		time.Sleep(time.Second)
-		sm.CreateSegment("test2", timestampNow())
+		sm.CreateSegment("test2", timestamp())
 		log2 := NewLog("test2", []byte("test"))
 		time.Sleep(time.Second)
 
@@ -84,7 +84,7 @@ func TestSegmentManagerRoundtrip(t *testing.T) {
 	os.RemoveAll("./fixtures/sm_roundtrip")
 	defer os.RemoveAll("./fixtures/sm_roundtrip")
 	withSM(t, "./fixtures/sm_roundtrip", func(_ []Segment, sm *SegmentManager) {
-		epoch := timestampNow()
+		epoch := timestamp()
 		e1 := epoch.Add(time.Duration(-2) * time.Hour)
 		e2 := epoch.Add(time.Duration(-1) * time.Hour)
 		test1, err := sm.CreateSegment("test1", e1)
@@ -103,7 +103,7 @@ func TestSegmentManagerRoundtrip(t *testing.T) {
 			t.Errorf("Expected to write logs, got errors %v", errs)
 		}
 
-		resultChans := sm.Iterate([]string{"test1", "test2"}, e1.Add(time.Duration(-1)*time.Hour), timestampNow(), 1, 1)
+		resultChans := sm.Iterate([]string{"test1", "test2"}, e1.Add(time.Duration(-1)*time.Hour), timestamp(), 1, 1)
 		result1, open1 := <-resultChans[0]
 		result2, open2 := <-resultChans[1]
 		if !open1 {

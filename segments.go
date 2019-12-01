@@ -200,7 +200,7 @@ func (m *SegmentManager) CreateSegment(domain string, timestamp time.Time) (Segm
 
 // CreateNeededSegments checks the latest segment in each domain and if any exceed the given constraints, a new segment is created in that domain
 func (m *SegmentManager) CreateNeededSegments(maxBytes int64, maxDuration time.Duration) error {
-	now := time.Now()
+	now := timestamp()
 	errs := []error{}
 
 	for domain, segments := range m.SegmentMap {

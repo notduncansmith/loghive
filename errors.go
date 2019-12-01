@@ -33,16 +33,12 @@ func coalesceErrors(process string, errs []error) error {
 	return errors.New(msg)
 }
 
-func errUnableToLoadConfig(reason string) error {
-	return fmt.Errorf("Unable to load config: %v", reason)
-}
-
 func errUnreachable(path string, reason string) error {
 	return fmt.Errorf("File or directory %v cannot be opened (%v)", path, reason)
 }
 
-func errQueueFull() error {
-	return fmt.Errorf("Queue is full")
+func errMalformedSegment(path string, err error) error {
+	return fmt.Errorf("Segment %v cannot be read (%v)", path, err)
 }
 
 func errInvalidLogDomain(domain string) error {

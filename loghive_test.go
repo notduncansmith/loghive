@@ -93,7 +93,7 @@ func TestRoundtripIterate(t *testing.T) {
 		logstub{"test", "foo"},
 	})
 
-	chans := h.sm.Iterate([]string{"test"}, timestampNow().Add(time.Duration(-5)*time.Second), timestampNow(), 1, 1)
+	chans := h.sm.Iterate([]string{"test"}, timestamp().Add(time.Duration(-5)*time.Second), timestamp(), 1, 1)
 	read := <-(chans[0])
 	if len(read) != 1 {
 		t.Errorf("Expected to read 1 written msg, found %v", read)
@@ -111,8 +111,8 @@ func TestRoundtripQuery(t *testing.T) {
 		logstub{"test", "foo"},
 	})
 
-	oneMinuteAgo := timestampNow().Add(time.Duration(-1) * time.Minute)
-	q := NewQuery([]string{"test"}, oneMinuteAgo, timestampNow(), FilterMatchAll())
+	oneMinuteAgo := timestamp().Add(time.Duration(-1) * time.Minute)
+	q := NewQuery([]string{"test"}, oneMinuteAgo, timestamp(), FilterMatchAll())
 
 	checkResults(t, h, q, []logstub{
 		logstub{"test", "foo"},

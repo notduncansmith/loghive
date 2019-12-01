@@ -2,7 +2,6 @@ package loghive
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/notduncansmith/bbq"
 	"github.com/notduncansmith/mutable"
@@ -32,7 +31,7 @@ func NewHive(path string, config Config) (*Hive, error) {
 	}
 	for _, d := range config.WritableDomains {
 		if sm.SegmentMap[d] == nil {
-			s, err := sm.CreateSegment(d, time.Now())
+			s, err := sm.CreateSegment(d, timestamp())
 			if err != nil {
 				return nil, err
 			}
