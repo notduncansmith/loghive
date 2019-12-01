@@ -210,8 +210,8 @@ func (m *SegmentManager) CreateNeededSegments(maxBytes int64, maxDuration time.D
 			_, err := m.CreateSegment(domain, now)
 			if err != nil {
 				errs = append(errs)
-				continue
 			}
+			continue
 		}
 		f, err := os.Stat(latest.Path)
 		if err != nil {
@@ -223,7 +223,6 @@ func (m *SegmentManager) CreateNeededSegments(maxBytes int64, maxDuration time.D
 			_, err := m.CreateSegment(domain, now)
 			if err != nil {
 				errs = append(errs)
-				continue
 			}
 		}
 	}
