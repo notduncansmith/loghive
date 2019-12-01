@@ -61,12 +61,12 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 		err = os.MkdirAll(m.Path, 0700)
 	}
 	if err != nil {
-		return nil, err
+		return nil, errUnreachable(m.Path, err.Error())
 	}
 
 	files, err := ioutil.ReadDir(m.Path)
 	if err != nil {
-		return nil, err
+		return nil, errUnreachable(m.Path, err.Error())
 	}
 	fmt.Printf("Scanned path %v, found %v files\n", m.Path, len(files))
 
@@ -79,7 +79,7 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 		fmt.Printf("Reading segment #%v meta from %v\n", i, file.Name())
 		segment, err := m.readSegmentMeta(file.Name())
 		if err != nil {
-			return nil, err
+			return nil, errMalformedSegment(m.Path, err)
 		}
 		segments = append(segments, segment)
 	}
