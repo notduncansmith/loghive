@@ -14,17 +14,11 @@ func timestampNow() time.Time {
 
 func timeFromBytes(bz []byte) time.Time {
 	t := time.Time{}
-	err := t.UnmarshalText(bz)
-	if err != nil {
-		panic("Error decoding time: " + string(bz) + ": " + err.Error())
-	}
+	t.UnmarshalText(bz)
 	return t
 }
 
 func timeToBytes(t time.Time) []byte {
-	bz, err := t.MarshalText()
-	if err != nil {
-		panic("Error encoding time: " + t.String() + ": " + err.Error())
-	}
+	bz, _ := t.MarshalText()
 	return bz
 }
