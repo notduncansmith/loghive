@@ -3,40 +3,89 @@ package loghive
 import (
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
 
-func TestCreate(t *testing.T) {
-	defer os.RemoveAll("./fixtures/create")
-	_, err := NewHive("./fixtures/create", DefaultConfig)
-	if err != nil {
-		t.Errorf("Should be able to create hive: %v", err)
-	}
-	fmt.Println("Hive created")
+type logstub struct {
+	domain string
+	line   string
 }
 
-func TestRoundtripIterate(t *testing.T) {
-	path := "./fixtures/roundtrip_iterate"
+func hive(t *testing.T, path string, domains []string) *Hive {
 	os.RemoveAll(path)
 	defer os.RemoveAll(path)
 	config := DefaultConfig
-	config.WritableDomains = []string{"test"}
-	config.FlushAfterItems = 1
-	config.FlushAfterDuration = time.Duration(0)
+	config.WritableDomains = domains
 	h, err := NewHive(path, config)
 	if err != nil {
 		t.Errorf("Should be able to create hive: %v", err)
 	}
+	return h
+}
 
-	flushed, err := h.Enqueue("test", []byte("foo"))
-	if err != nil {
-		t.Errorf("Should be able to enqueue message: %v", err)
+func stubLogs(t *testing.T, h *Hive, stubs []logstub) {
+	wg := sync.WaitGroup{}
+
+	for _, stub := range stubs {
+		wg.Add(1)
+		flushed, err := h.Enqueue(stub.domain, []byte(stub.line))
+		if err != nil {
+			t.Errorf("Should be able to enqueue message: %v", err)
+		}
+		go func() {
+			err := <-flushed
+			if err != nil {
+				t.Errorf("Should be able to write message %v", err)
+			}
+			wg.Done()
+		}()
 	}
-	err = <-flushed
+
+	wg.Wait()
+}
+
+func checkResults(t *testing.T, h *Hive, q *Query, expected []logstub) {
+	err := h.Query(q)
 	if err != nil {
-		t.Errorf("Should be able to write message %v", err)
+		t.Errorf("Should be able to execute query %v %v", q, err)
 	}
+
+	resultCount := 0
+
+	for log := range q.Results {
+		if resultCount == len(expected) {
+			t.Errorf("Expected to get %v result(s), got %v", len(expected), resultCount+1)
+			t.FailNow()
+		}
+		fmt.Printf("Result %v: %v\n", resultCount, log)
+		expectedLine := string(expected[resultCount].line)
+		expectedDomain := expected[resultCount].domain
+
+		if string(log.Line) != expectedLine {
+			t.Errorf("Expected line '%v', got '%v'", expectedLine, string(log.Line))
+		}
+		if log.Domain != expectedDomain {
+			t.Errorf("Expected domain '%v', got '%v'", expectedDomain, string(log.Line))
+		}
+		resultCount++
+	}
+
+	if resultCount != len(expected) {
+		t.Errorf("Expected to get %v result(s), got %v", len(expected), resultCount)
+	}
+}
+
+func TestCreate(t *testing.T) {
+	hive(t, "./fixtures/create", []string{"test"})
+}
+
+func TestRoundtripIterate(t *testing.T) {
+	h := hive(t, "./fixtures/roundtrip_iterate", []string{"test"})
+	stubLogs(t, h, []logstub{
+		logstub{"test", "foo"},
+	})
 
 	chans := h.sm.Iterate([]string{"test"}, time.Now().Add(time.Duration(-5)*time.Second), time.Now(), 1, 1)
 	read := <-(chans[0])
@@ -51,38 +100,31 @@ func TestRoundtripIterate(t *testing.T) {
 }
 
 func TestRoundtripQuery(t *testing.T) {
-	path := "./fixtures/roundtrip_query"
-	os.RemoveAll(path)
-	defer os.RemoveAll(path)
-	config := DefaultConfig
-	config.WritableDomains = []string{"test"}
-	h, err := NewHive(path, config)
-	if err != nil {
-		t.Errorf("Should be able to create hive: %v", err)
-	}
-	flushed, err := h.Enqueue("test", []byte("foo"))
-	if err != nil {
-		t.Errorf("Should be able to enqueue message: %v", err)
-	}
-	<-flushed
+	h := hive(t, "./fixtures/roundtrip_query", []string{"test"})
+	stubLogs(t, h, []logstub{
+		logstub{"test", "foo"},
+	})
+
 	oneMinuteAgo := time.Now().Add(time.Duration(-1) * time.Minute)
 	q := NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterMatchAll())
-	go func() {
-		err = h.Query(q)
-		if err != nil {
-			t.Errorf("Should be able to execute query %v %v", q, err)
-		}
-	}()
 
-	gotResults := false
-	for log := range q.Results {
-		gotResults = true
-		fmt.Printf("Result 1: %v\n", log)
-		if string(log.Line) != "foo" {
-			t.Errorf("Expected line 'foo', got '%v'", string(log.Line))
-		}
+	checkResults(t, h, q, []logstub{
+		logstub{"test", "foo"},
+	})
+}
+
+func TestEnqueueValidation(t *testing.T) {
+	h := hive(t, "./fixtures/roundtrip_query", []string{"test"})
+
+	if _, err := h.Enqueue("nonexistentDomain", []byte("foo")); err == nil {
+		t.Error("Should not be able to log to non-existent domain")
 	}
-	if !gotResults {
-		t.Error("Expected to get results")
+
+	if _, err := h.Enqueue("test", nil); err == nil {
+		t.Error("Should not be able to log non-existent line")
+	}
+
+	if _, err := h.Enqueue("test", make([]byte, 9*1024)); err == nil {
+		t.Errorf("Should not be able to log line of %v bytes", 9*1024)
 	}
 }

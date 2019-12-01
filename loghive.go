@@ -49,7 +49,9 @@ func (h *Hive) Enqueue(domain string, line []byte) (bbq.Callback, error) {
 	if !h.domainValid(domain) {
 		return nil, errInvalidLogDomain(domain)
 	}
-
+	if line == nil {
+		return nil, errLineMissing()
+	}
 	if tooLong := h.lineTooLong(len(line)); tooLong {
 		return nil, errLineTooLarge(len(line), h.config.LineMaxBytes)
 	}
@@ -62,12 +64,8 @@ func (h *Hive) Enqueue(domain string, line []byte) (bbq.Callback, error) {
 func (h *Hive) flush(items []interface{}) error {
 	logs := []*Log{}
 	for _, i := range items {
-		log, ok := i.(*Log)
-		if !ok {
-			fmt.Printf("Unable to cast %v to log\n", i)
-		} else {
-			logs = append(logs, log)
-		}
+		log, _ := i.(*Log)
+		logs = append(logs, log)
 	}
 	fmt.Printf("Flushing %v logs\n", len(logs))
 	errs := h.sm.Write(logs)

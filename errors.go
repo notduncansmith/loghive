@@ -45,16 +45,16 @@ func errQueueFull() error {
 	return fmt.Errorf("Queue is full")
 }
 
-func errInvalidSegmentFilename(filename string) error {
-	return fmt.Errorf("Invalid segment filename: %v", filename)
-}
-
 func errInvalidLogDomain(domain string) error {
 	return fmt.Errorf("Attempted to log to invalid domain: %v", domain)
 }
 
 func errUnableToBackfill(domain string, timestamp time.Time) error {
 	return fmt.Errorf("Attempted to backfill log in domain %v with timestamp %v", domain, string(timeToBytes(timestamp)))
+}
+
+func errLineMissing() error {
+	return fmt.Errorf("Attempted to log empty line")
 }
 
 func errLineTooLarge(count, max int) error {
