@@ -93,7 +93,7 @@ func TestRoundtripIterate(t *testing.T) {
 		logstub{"test", "foo"},
 	})
 
-	chans := h.sm.Iterate([]string{"test"}, time.Now().Add(time.Duration(-5)*time.Second), time.Now(), 1, 1)
+	chans := h.sm.Iterate([]string{"test"}, timestampNow().Add(time.Duration(-5)*time.Second), timestampNow(), 1, 1)
 	read := <-(chans[0])
 	if len(read) != 1 {
 		t.Errorf("Expected to read 1 written msg, found %v", read)
@@ -111,8 +111,8 @@ func TestRoundtripQuery(t *testing.T) {
 		logstub{"test", "foo"},
 	})
 
-	oneMinuteAgo := time.Now().Add(time.Duration(-1) * time.Minute)
-	q := NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterMatchAll())
+	oneMinuteAgo := timestampNow().Add(time.Duration(-1) * time.Minute)
+	q := NewQuery([]string{"test"}, oneMinuteAgo, timestampNow(), FilterMatchAll())
 
 	checkResults(t, h, q, []logstub{
 		logstub{"test", "foo"},
@@ -137,16 +137,16 @@ func TestEnqueueValidation(t *testing.T) {
 
 func TestQueryValidation(t *testing.T) {
 	h := hive(t, "./fixtures/roundtrip_query", []string{"test"})
-
-	oneMinuteFromNow := time.Now().Add(time.Duration(1) * time.Minute)
-	twoMinutesFromNow := time.Now().Add(time.Duration(2) * time.Minute)
+	now := timestampNow()
+	oneMinuteFromNow := now.Add(time.Duration(1) * time.Minute)
+	twoMinutesFromNow := now.Add(time.Duration(2) * time.Minute)
 	err := h.Query(NewQuery([]string{"test"}, oneMinuteFromNow, twoMinutesFromNow, FilterMatchAll()))
 	if err == nil {
 		t.Error("Should not be able to query the future")
 	}
 
-	oneMinuteAgo := time.Now().Add(time.Duration(-1) * time.Minute)
-	twoMinutesAgo := time.Now().Add(time.Duration(-2) * time.Minute)
+	oneMinuteAgo := now.Add(time.Duration(-1) * time.Minute)
+	twoMinutesAgo := now.Add(time.Duration(-2) * time.Minute)
 	err = h.Query(NewQuery([]string{"test"}, oneMinuteAgo, twoMinutesAgo, FilterMatchAll()))
 	if err == nil {
 		t.Error("Should not be able to query start after end")
@@ -163,13 +163,13 @@ func TestQueryFilters(t *testing.T) {
 	stubLogs(t, h, []logstub{
 		logstub{"test", "foo"},
 	})
-
-	oneMinuteAgo := time.Now().Add(time.Duration(-1) * time.Minute)
+	now := timestampNow()
+	oneMinuteAgo := now.Add(time.Duration(-1) * time.Minute)
 
 	queries := []*Query{
-		NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterMatchAll()),
-		NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterExactString("foo")),
-		NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterContainsString("f")),
+		NewQuery([]string{"test"}, oneMinuteAgo, now, FilterMatchAll()),
+		NewQuery([]string{"test"}, oneMinuteAgo, now, FilterExactString("foo")),
+		NewQuery([]string{"test"}, oneMinuteAgo, now, FilterContainsString("f")),
 	}
 
 	for _, q := range queries {
@@ -179,8 +179,8 @@ func TestQueryFilters(t *testing.T) {
 	}
 
 	negativeQueries := []*Query{
-		NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterExactString("hello")),
-		NewQuery([]string{"test"}, oneMinuteAgo, time.Now(), FilterContainsString("h")),
+		NewQuery([]string{"test"}, oneMinuteAgo, now, FilterExactString("hello")),
+		NewQuery([]string{"test"}, oneMinuteAgo, now, FilterContainsString("h")),
 	}
 
 	for _, q := range negativeQueries {
