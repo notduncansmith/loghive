@@ -79,6 +79,12 @@ func checkResults(t *testing.T, h *Hive, q *Query, expected []logstub) {
 
 func TestCreate(t *testing.T) {
 	hive(t, "./fixtures/create", []string{"test"})
+	os.Mkdir("./fixtures/unwritable", 0400)
+	defer os.Remove("./fixtures/unwritable")
+	h, err := NewHive("./fixtures/unwritable", DefaultConfig)
+	if h != nil || err == nil {
+		t.Error("Should not be able to create hive at unwritable dir")
+	}
 }
 
 func TestRoundtripIterate(t *testing.T) {
