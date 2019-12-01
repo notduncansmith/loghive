@@ -1,5 +1,7 @@
 # loghive
 
+[![GoDoc](https://godoc.org/github.com/notduncansmith/loghive?status.svg)](https://godoc.org/github.com/notduncansmith/loghive) [![Build Status](https://travis-ci.com/notduncansmith/loghive.svg?branch=master)](https://travis-ci.com/notduncansmith/loghive) [![codecov](https://codecov.io/gh/notduncansmith/loghive/branch/master/graph/badge.svg)](https://codecov.io/gh/notduncansmith/loghive)
+
 Loghive is an engine for storing and retrieving logs, built on [Badger](https://github.com/dgraph-io/badger).
 
 ## Why
