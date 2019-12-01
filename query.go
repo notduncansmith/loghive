@@ -34,6 +34,11 @@ func (h *Hive) ValidateQuery(query *Query) error {
 		return errInvalidQuery("end " + query.End.String() + " before start " + query.Start.String())
 	}
 
+	now := time.Now()
+	if query.Start.After(now) {
+		return errInvalidQuery("start " + query.Start.String() + " before now " + now.String())
+	}
+
 	return nil
 }
 
