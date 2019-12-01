@@ -378,15 +378,3 @@ func (m *SegmentManager) segmentsInRange(domain string, start, end time.Time) []
 	})
 	return inRange
 }
-
-func (m *SegmentManager) segmentsAfter(domain string, start time.Time) []Segment {
-	inRange := []Segment{}
-	m.DoWithRLock(func() {
-		for _, s := range m.SegmentMap[domain] {
-			if s.Timestamp.After(start) {
-				inRange = append(inRange, s)
-			}
-		}
-	})
-	return inRange
-}
