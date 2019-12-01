@@ -70,18 +70,18 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 	}
 	fmt.Printf("Scanned path %v, found %v files\n", m.Path, len(files))
 
-	segments := make([]Segment, len(files))
+	segments := []Segment{}
 	for i, file := range files {
 		if !strings.HasPrefix(file.Name(), segmentFilenamePrefix) {
 			fmt.Printf("Skipping non-segment file %v\n", file.Name())
 			continue
 		}
 		fmt.Printf("Reading segment #%v meta from %v\n", i, file.Name())
-		segments[i], err = m.readSegmentMeta(file.Name())
+		segment, err := m.readSegmentMeta(file.Name())
 		if err != nil {
 			return nil, err
 		}
-		fmt.Println(segments[i])
+		segments = append(segments, segment)
 	}
 
 	sort.Slice(segments, func(a, b int) bool {
