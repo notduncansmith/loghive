@@ -42,9 +42,9 @@
 
     - [ ] Err opening DB
 
-    - [ ] Err unmarshalling key during iteration
 
     - [ ] Err matching log to domain after enqueued
+    - [x] Err unmarshalling key during iteration
 
     - [x] Err unable to backfill
 

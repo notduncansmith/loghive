@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dgraph-io/badger"
 	"github.com/sirupsen/logrus"
 )
 
@@ -221,6 +222,42 @@ func TestSegmentAgedOut(t *testing.T) {
 
 		if segmentAgedOut(s, t2, 61*time.Minute) {
 			t.Errorf("Expected segment %v not to age out", s)
+		}
+	})
+}
+
+func TestSegmentMalformedKey(t *testing.T) {
+	logrus.SetLevel(logrus.DebugLevel)
+	// Basically just make sure nothing breaks, we skip malformed keys by design
+	withTmp(t, "./fixtures/sm_malformed_key", func(_ []Segment, sm *SegmentManager) {
+		t1 := timestamp().Add(-1 * time.Hour)
+		t2 := timestamp().Add(-1 * time.Minute)
+
+		s, _ := sm.CreateSegment("test", t1)
+		db, _ := sm.openDB(s.Path)
+
+		db.Update(func(txn *badger.Txn) error {
+			txn.Set([]byte("foo"), []byte("bar"))
+			return nil
+		})
+
+		err := sm.Write([]*Log{NewLog("test", []byte("test"))})
+		expectSuccess(t, "write logs", err)
+
+		resultChans := sm.Iterate([]string{"test"}, t2, timestamp(), 10, 10)
+		resultCount := 0
+
+		for _, ch := range resultChans {
+			for chunk := range ch {
+				resultCount++
+				if len(chunk) != 1 {
+					t.Errorf("Expected to get exactly 1 log, got %v", chunk)
+				}
+			}
+		}
+
+		if resultCount != 1 {
+			t.Errorf("Expected to get exactly 1 chunk, got %v", resultCount)
 		}
 	})
 }
