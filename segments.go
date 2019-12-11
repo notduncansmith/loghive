@@ -54,9 +54,11 @@ func (m *SegmentManager) Close() {
 
 // ScanDir scans the directory at `m.Path` for segment DB files and opens them
 func (m *SegmentManager) ScanDir() ([]Segment, error) {
+	ic := newIC("SegmentManager.ScanDir")
+
 	_, err := os.Stat(m.Path)
 	if err != nil {
-		logrus.Debugf("Creating %v", m.Path)
+		ic.L().Debugf("Creating %v", m.Path)
 		err = os.MkdirAll(m.Path, 0700)
 	}
 	if err != nil {
@@ -64,15 +66,15 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 	}
 
 	files, _ := ioutil.ReadDir(m.Path)
-	logrus.Infof("Scanned path %v, found %v files\n", m.Path, len(files))
+	ic.L().Infof("Scanned path %v, found %v files", m.Path, len(files))
 
 	segments := []Segment{}
 	for i, file := range files {
 		if !strings.HasPrefix(file.Name(), segmentFilenamePrefix) {
-			logrus.Debugf("Skipping non-segment file %v\n", file.Name())
+			ic.L().Debugf("Skipping non-segment file %v", file.Name())
 			continue
 		}
-		logrus.Infof("Reading segment #%v meta from %v\n", i, file.Name())
+		ic.L().Infof("Reading segment #%v meta from %v", i, file.Name())
 		segment, err := m.readSegmentMeta(file.Name())
 		if err != nil {
 			return nil, errMalformedSegment(m.Path, err)
@@ -86,9 +88,12 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 
 	for _, s := range segments {
 		cur := m.SegmentMap[s.Domain]
+		l := ic.WithSegment(&s).L()
 		if cur == nil {
+			l.Debug("Initializing domain")
 			m.SegmentMap[s.Domain] = []Segment{s}
 		} else {
+			l.Debug("Adding segment to domain")
 			m.SegmentMap[s.Domain] = append(cur, s)
 		}
 	}
@@ -98,12 +103,14 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 
 // Write stores a group of logs in their appropriate segment files, returning any failures
 func (m *SegmentManager) Write(logs []*Log) error {
+	ic := newIC("SegmentManager.Write")
 	errs := []LogWriteFailure{}
 	mut := mutable.NewRW("errs")
 
 	// first we batch each segment's logs together...
 	segmentLogs := map[string][]*Log{}
 	for _, log := range logs {
+		ic.WithLog(log).L().Debug("Assigning log segment for writing")
 		s, err := m.segmentForLog(log)
 		if err != nil {
 			errs = append(errs, LogWriteFailure{err, *log, 1})
@@ -116,29 +123,31 @@ func (m *SegmentManager) Write(logs []*Log) error {
 	}
 
 	if len(errs) > 0 {
-		logrus.Errorf("Errors assigning logs to segments: %v", errs)
+		ic.L().Errorf("Errors assigning logs to segments: %v", errs)
 	}
 
-	logrus.Debugf("Segment batches to write: %v", segmentLogs)
+	ic.L().Debugf("Segment batches to write: %v", segmentLogs)
 
 	// ...then write each batch
 	wg := sync.WaitGroup{}
-	for path, logs := range segmentLogs {
+	for path, pathLogs := range segmentLogs {
 		wg.Add(1)
-		logrus.Debugf("Writing batch at path %v", path)
+		ic.L().Debugf("Writing batch at path %v", path)
 		go func(p string, l []*Log) {
 			err := m.writeSegmentLogs(p, l)
 			if err != nil {
-				logrus.Errorf("Log write failure %v", err)
+				ic.L().Errorf("Log write failure %v", err)
 				mut.DoWithRWLock(func() {
 					errs = append(errs, LogWriteFailure{err, *l[0], len(l)})
 				})
+			} else {
+				ic.L().Debugf("Wrote %v logs to %v", len(l), p)
 			}
 			wg.Done()
-		}(path, logs)
+		}(path, pathLogs)
 	}
 	wg.Wait()
-	logrus.Debugf("Wrote %v logs\n", len(logs))
+	ic.L().Debugf("Wrote %v logs", len(logs))
 
 	return coalesceLogWriteFailures(errs)
 }
@@ -152,9 +161,9 @@ func (m *SegmentManager) Iterate(domains []string, start, end time.Time, chunkSi
 		go func(i int, d string) {
 			defer close(chunkChans[i])
 			segments := m.segmentsInRange(d, start, end)
-			logrus.Debugf("Segments in range: %v\n", segments)
+			logrus.Debugf("Segments in range: %v", segments)
 			for _, segment := range segments {
-				logrus.Debugf("Iterating segment %v @ %v\n", segment.Domain, segment.Path)
+				logrus.Debugf("Iterating segment %v @ %v", segment.Domain, segment.Path)
 				err := m.segmentChunks(d, segment.Path, chunkSize, start, end, chunkChans[i])
 				if err != nil {
 					logrus.Println(err)

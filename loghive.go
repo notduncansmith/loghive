@@ -35,11 +35,11 @@ func NewHive(path string, config Config) (*Hive, error) {
 			if err != nil {
 				return nil, err
 			}
-			logrus.Infof("Created segment %v for writable domain %v\n", s.Path, d)
+			logrus.Infof("Created segment %v for writable domain %v", s.Path, d)
 			segments = append(segments, s)
 		}
 	}
-	logrus.Infof("Loaded %v segment(s)\n", len(segments))
+	logrus.Infof("Loaded %v segment(s)", len(segments))
 	return h, nil
 }
 
@@ -55,7 +55,7 @@ func (h *Hive) Enqueue(domain string, line []byte) (bbq.Callback, error) {
 		return nil, errLineTooLarge(len(line), h.config.LineMaxBytes)
 	}
 	log := NewLog(domain, line)
-	logrus.Debugf("Enqueing log %v\n", log)
+	logrus.Debugf("Enqueing log %v", log)
 	return h.incoming.Enqueue(log), nil
 }
 
@@ -66,10 +66,11 @@ func (h *Hive) flush(items []interface{}) error {
 		log, _ := i.(*Log)
 		logs = append(logs, log)
 	}
-	logrus.Debugf("Flushing %v logs\n", len(logs))
+	logrus.Debugf("Flushing %v logs", len(logs))
 	err := h.sm.Write(logs)
 
 	if err != nil {
+		logrus.Errorf("Error flushing logs %v", err)
 		return err
 	}
 
