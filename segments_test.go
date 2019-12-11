@@ -109,6 +109,13 @@ func TestSegmentManagerWrite(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected to write logs, got errors %v", err)
 		}
+
+		backfilledLog := NewLog("test1", []byte("test"))
+		backfilledLog.Timestamp = backfilledLog.Timestamp.Add(-1 * time.Hour)
+		err = sm.Write([]*Log{backfilledLog})
+		if err == nil {
+			t.Error("Expected to get error when trying to write log prior to segment start")
+		}
 	})
 }
 

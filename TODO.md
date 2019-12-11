@@ -46,7 +46,7 @@
 
     - [ ] Err matching log to domain after enqueued
 
-    - [ ] Err unable to backfill
+    - [x] Err unable to backfill
 
     - [x] Err reading segment as badger DB
 
