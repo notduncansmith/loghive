@@ -18,10 +18,14 @@ func withSM(t *testing.T, path string, f func([]Segment, *SegmentManager)) {
 	sm.Close()
 }
 
+func withTmp(t *testing.T, path string, f func([]Segment, *SegmentManager)) {
+	os.RemoveAll(path)
+	defer os.RemoveAll(path)
+	withSM(t, path, f)
+}
+
 func TestSegmentManagerInit(t *testing.T) {
-	os.RemoveAll("./fixtures/sm_init")
-	defer os.RemoveAll("./fixtures/sm_init")
-	withSM(t, "./fixtures/sm_init", func(segments []Segment, sm *SegmentManager) {
+	withTmp(t, "./fixtures/sm_init", func(segments []Segment, sm *SegmentManager) {
 		if len(segments) > 0 {
 			t.Errorf("Expected to find no segments, found %v", segments)
 		}
@@ -29,9 +33,7 @@ func TestSegmentManagerInit(t *testing.T) {
 }
 
 func TestSegmentManagerCreate(t *testing.T) {
-	os.RemoveAll("./fixtures/sm_create")
-	defer os.RemoveAll("./fixtures/sm_create")
-	withSM(t, "./fixtures/sm_create", func(_ []Segment, sm *SegmentManager) {
+	withTmp(t, "./fixtures/sm_create", func(_ []Segment, sm *SegmentManager) {
 		epoch, err := time.Parse("2006-Jan-02", "2013-Feb-05")
 		if err != nil {
 			t.Errorf("unable to parse date %v", err)
@@ -81,9 +83,7 @@ func TestSegmentManagerScan(t *testing.T) {
 }
 
 func TestSegmentManagerWrite(t *testing.T) {
-	os.RemoveAll("./fixtures/sm_write")
-	defer os.RemoveAll("./fixtures/sm_write")
-	withSM(t, "./fixtures/sm_write", func(_ []Segment, sm *SegmentManager) {
+	withTmp(t, "./fixtures/sm_write", func(_ []Segment, sm *SegmentManager) {
 		sm.CreateSegment("test1", timestamp())
 		log1 := NewLog("test1", []byte("test"))
 		time.Sleep(time.Second)
@@ -91,18 +91,16 @@ func TestSegmentManagerWrite(t *testing.T) {
 		log2 := NewLog("test2", []byte("test"))
 		time.Sleep(time.Second)
 
-		errs := sm.Write([]*Log{log1, log2})
+		err := sm.Write([]*Log{log1, log2})
 
-		if len(errs) > 0 {
-			t.Errorf("Expected to write logs, got errors %v", errs)
+		if err != nil {
+			t.Errorf("Expected to write logs, got errors %v", err)
 		}
 	})
 }
 
 func TestSegmentManagerRoundtrip(t *testing.T) {
-	os.RemoveAll("./fixtures/sm_roundtrip")
-	defer os.RemoveAll("./fixtures/sm_roundtrip")
-	withSM(t, "./fixtures/sm_roundtrip", func(_ []Segment, sm *SegmentManager) {
+	withTmp(t, "./fixtures/sm_roundtrip", func(_ []Segment, sm *SegmentManager) {
 		epoch := timestamp()
 		e1 := epoch.Add(time.Duration(-2) * time.Hour)
 		e2 := epoch.Add(time.Duration(-1) * time.Hour)
@@ -116,10 +114,10 @@ func TestSegmentManagerRoundtrip(t *testing.T) {
 		log1 := Log{"test1", e1.Add(time.Minute), []byte("hello")}
 		log2 := Log{"test2", e2.Add(time.Minute), []byte("hello")}
 
-		errs := sm.Write([]*Log{&log1, &log2})
+		err = sm.Write([]*Log{&log1, &log2})
 
-		if len(errs) > 0 {
-			t.Errorf("Expected to write logs, got errors %v", errs)
+		if err != nil {
+			t.Errorf("Expected to write logs, got error %v", err)
 		}
 
 		resultChans := sm.Iterate([]string{"test1", "test2"}, e1.Add(time.Duration(-1)*time.Hour), timestamp(), 1, 1)
@@ -159,6 +157,50 @@ func TestSegmentManagerRoundtrip(t *testing.T) {
 			}
 		} else {
 			t.Errorf("Expected 1 log per chunk, got %v", result2)
+		}
+	})
+}
+
+func TestSegmentSizedOut(t *testing.T) {
+	withTmp(t, "./fixtures/sm_sized_out", func(_ []Segment, sm *SegmentManager) {
+		s, err := sm.CreateSegment("test", timestamp())
+		expectSuccess(t, "create segment", err)
+		l := NewLog("test", make([]byte, 128))
+		expectSuccess(t, "write logs", sm.Write([]*Log{l}))
+
+		maxBytes := int64(64)
+		sizedOut, err := segmentSizedOut(s, maxBytes)
+		expectSuccess(t, "check segment size", err)
+
+		if !sizedOut {
+			t.Errorf("Expected segment %v to be sized out (%v bytes)", s, maxBytes)
+		}
+
+		maxBytes = int64(1024)
+		sizedOut, err = segmentSizedOut(s, maxBytes)
+		expectSuccess(t, "checking segment size", err)
+
+		if sizedOut {
+			t.Errorf("Expected segment %v not to be sized out (%v bytes)", s, maxBytes)
+		}
+	})
+}
+
+func TestSegmentAgedOut(t *testing.T) {
+	withTmp(t, "./fixtures/sm_aged_out", func(_ []Segment, sm *SegmentManager) {
+		t1 := timestamp()
+		t2 := t1.Add(time.Hour)
+		t3 := t2.Add(time.Minute)
+
+		s, err := sm.CreateSegment("test", t1)
+		expectSuccess(t, "create segment", err)
+
+		if !segmentAgedOut(s, t3, time.Hour) {
+			t.Errorf("Expected segment %v to age out", s)
+		}
+
+		if segmentAgedOut(s, t2, 61*time.Minute) {
+			t.Errorf("Expected segment %v not to age out", s)
 		}
 	})
 }

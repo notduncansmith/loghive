@@ -102,7 +102,7 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 }
 
 // Write stores a group of logs in their appropriate segment files, returning any failures
-func (m *SegmentManager) Write(logs []*Log) []LogWriteFailure {
+func (m *SegmentManager) Write(logs []*Log) error {
 	errs := []LogWriteFailure{}
 	mut := mutable.NewRW("errs")
 
@@ -145,7 +145,7 @@ func (m *SegmentManager) Write(logs []*Log) []LogWriteFailure {
 	wg.Wait()
 	logrus.Debugf("Wrote %v logs\n", len(logs))
 
-	return errs
+	return coalesceLogWriteFailures(errs)
 }
 
 // Iterate takes a list of domains and a range of time, returning a list of channels (one per domain) on which chunks of the requested size will be delivered

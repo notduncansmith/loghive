@@ -22,9 +22,9 @@
 
 - [ ] Untested Happy Paths:
 
-    - [ ] Create new segment based on size
+    - [x] Should create new segment based on size
 
-    - [ ] Create new segment based on duration
+    - [x] Should create new segment based on duration
 
     - [ ] Sort segments during scan
 
