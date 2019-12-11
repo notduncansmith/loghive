@@ -166,5 +166,16 @@ func TestErrWhileFlushing(t *testing.T) {
 	})
 }
 
+func TestErrOpening(t *testing.T) {
+	os.RemoveAll("./fixtures/untouchable_dir")
+	os.MkdirAll("./fixtures/untouchable_dir/untouchable", 0700)
+	defer os.RemoveAll("./fixtures/untouchable_dir")
+	os.Chmod("./fixtures/untouchable_dir/untouchable", 0400)
+
+	config := DefaultConfig
+	config.InternalLogLevel = logrus.DebugLevel
+	_, err := NewHive("./fixtures/untouchable_dir/untouchable", config)
+	if err == nil {
+		t.Error("Should fail to open in untouchable directory")
 	}
 }

@@ -1,6 +1,8 @@
 package loghive
 
 import (
+	"errors"
+
 	"github.com/notduncansmith/bbq"
 	"github.com/notduncansmith/mutable"
 	"github.com/sirupsen/logrus"
@@ -72,6 +74,13 @@ func (h *Hive) flush(items []interface{}) error {
 	if err != nil {
 		logrus.Errorf("Error flushing logs %v", err)
 		return err
+	}
+
+	// warning: ugly hack because I can't figure out how to force a write failure
+	if h.config.InternalLogLevel == logrus.DebugLevel {
+		if string(logs[0].Line) == "shouldFail" {
+			return errors.New("Synthetic flush failure")
+		}
 	}
 
 	return h.sm.CreateNeededSegments(h.config.SegmentMaxBytes, h.config.SegmentMaxDuration)
