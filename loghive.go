@@ -67,9 +67,10 @@ func (h *Hive) flush(items []interface{}) error {
 		logs = append(logs, log)
 	}
 	logrus.Debugf("Flushing %v logs\n", len(logs))
-	errs := h.sm.Write(logs)
-	if len(errs) > 0 {
-		return coalesceLogWriteFailures(errs)
+	err := h.sm.Write(logs)
+
+	if err != nil {
+		return err
 	}
 
 	return h.sm.CreateNeededSegments(h.config.SegmentMaxBytes, h.config.SegmentMaxDuration)

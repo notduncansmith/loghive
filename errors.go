@@ -14,6 +14,9 @@ type LogWriteFailure struct {
 }
 
 func coalesceLogWriteFailures(errs []LogWriteFailure) error {
+	if len(errs) == 0 {
+		return nil
+	}
 	msg := "Unable to write one or more logs: "
 	for i, e := range errs {
 		msg += fmt.Sprintf("\n[%v] %v", i, e)
