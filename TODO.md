@@ -18,7 +18,7 @@
 
     - [ ] `CleanupSegments() error`
 
-- [ ] Replace fmt.Printf/Println with structured/leveled logging (`Debug`, `Info`, `Warn`, `Error`)
+- [x] Replace fmt.Printf/Println with structured/leveled logging (`Debug`, `Info`, `Warn`, `Error`)
 
 - [ ] Untested Happy Paths:
 
