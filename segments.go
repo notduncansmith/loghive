@@ -63,10 +63,7 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 		return nil, errUnreachable(m.Path, err.Error())
 	}
 
-	files, err := ioutil.ReadDir(m.Path)
-	if err != nil {
-		return nil, errUnreachable(m.Path, err.Error())
-	}
+	files, _ := ioutil.ReadDir(m.Path)
 	logrus.Infof("Scanned path %v, found %v files\n", m.Path, len(files))
 
 	segments := []Segment{}
@@ -258,11 +255,6 @@ func (m *SegmentManager) readSegmentMeta(fileName string) (Segment, error) {
 // segmentForLog ensures that a log can be written to the latest segment in its domain
 func (m *SegmentManager) segmentForLog(l *Log) (Segment, error) {
 	domainSegments := m.SegmentMap[l.Domain]
-	if domainSegments == nil {
-		fmt.Println("Invalid domain", *l)
-		return Segment{}, errInvalidLogDomain(l.Domain)
-	}
-
 	segment := domainSegments[len(domainSegments)-1]
 	if l.Timestamp.Before(segment.Timestamp) {
 		return Segment{}, errUnableToBackfill(l.Domain, l.Timestamp)
