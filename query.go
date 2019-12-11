@@ -56,11 +56,13 @@ func (h *Hive) Query(q *Query) error {
 		go func(i int, chunkChan chan []Log) {
 			defer close(unorderedDomainResultChans[i])
 			for chunk := range chunkChan {
-				logrus.Debugf("Got chunk of size %v in domain %v\n", len(chunk), q.Domains[i])
+				logrus.Debugf("Got chunk of size %v in domain %v: %v", len(chunk), q.Domains[i], chunk)
 				for _, log := range chunk {
+					copy := log // pointers to `log` variable will point to new iteration values
+					logrus.Debugf("Filtering log: %v", log)
 					if q.Filter(&log) {
-						logrus.Debugf("Log accepted: %v", log)
-						unorderedDomainResultChans[i] <- &log
+						logrus.Debugf("Log accepted: [%v] %v", i, log)
+						unorderedDomainResultChans[i] <- &copy
 					} else {
 						logrus.Debugf("Log rejected: %v", log)
 					}
@@ -100,6 +102,7 @@ func FilterMatchAll() func(l *Log) bool {
 func logify(och chan march.Ordered, lch chan *Log) {
 	for o := range och {
 		log, ok := o.(*Log)
+		logrus.Debugf("Got ordered log %v", log)
 		if ok {
 			lch <- log
 		}

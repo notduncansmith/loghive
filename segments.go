@@ -223,7 +223,7 @@ func (m *SegmentManager) CreateNeededSegments(maxBytes int64, maxDuration time.D
 		latest := segments[len(segments)-1]
 
 		if segmentAgedOut(latest, now, maxDuration) {
-			logrus.Infof("Segment %v retired (age), creating new segment\n", latest.Path)
+			logrus.Infof("Segment %v retired (age), creating new segment", latest.Path)
 			createFor(domain)
 			continue
 		}
@@ -234,7 +234,7 @@ func (m *SegmentManager) CreateNeededSegments(maxBytes int64, maxDuration time.D
 			continue
 		}
 		if sizedOut {
-			logrus.Infof("Segment %v retired (size), creating new segment\n", latest.Path)
+			logrus.Infof("Segment %v retired (size), creating new segment", latest.Path)
 			createFor(domain)
 		}
 	}
@@ -301,9 +301,9 @@ func (m *SegmentManager) segmentChunks(domain, path string, chunkSize int, start
 		opts.PrefetchValues = false // key-only iteration
 		it := txn.NewIterator(opts)
 		defer it.Close()
-		chunk := []Log{}
+		var chunk []Log
 		for it.Seek(timeToBytes(start)); it.Valid(); it.Next() {
-			logrus.Debugf("Chunk size: %v\n", len(chunk))
+			logrus.Debugf("Chunk size: %v", len(chunk))
 			kbz := it.Item().Key()
 			logrus.Debugf("Iterator at: %v", string(kbz))
 			if string(kbz) == segmentMetaKey {
@@ -312,16 +312,21 @@ func (m *SegmentManager) segmentChunks(domain, path string, chunkSize int, start
 			keytime := time.Time{}
 			kerr := keytime.UnmarshalText(kbz)
 			if kerr != nil {
-				logrus.Errorf("Error unmarshaling keytime %v\n", kerr)
+				logrus.Errorf("Error unmarshaling keytime %v", kerr)
 				continue
 			}
-			logrus.Debugf("Iterator at keytime %v\n", keytime)
+			logrus.Debugf("Iterator at keytime %v", keytime)
 			if keytime.Before(end) {
 				logrus.Debug("In range")
 				it.Item().Value(func(val []byte) error {
-					chunk = append(chunk, Log{domain, keytime, val})
+					logVal := make([]byte, len(val))
+					copy(logVal, val)
+					logToAdd := Log{domain, keytime, logVal}
+					logrus.Debugf("Adding log to chunk %v", logToAdd)
+					chunk = append(chunk, logToAdd)
+					logrus.Debugf("New chunk %v", chunk)
 					if len(chunk) == chunkSize {
-						logrus.Debug("Chunking", chunk)
+						logrus.Debugf("Appending chunk %v", chunk)
 						chunks <- chunk
 						chunk = []Log{}
 					}
@@ -334,7 +339,7 @@ func (m *SegmentManager) segmentChunks(domain, path string, chunkSize int, start
 		}
 
 		if len(chunk) > 0 {
-			logrus.Infof("Leftover chunk values, chunking (%v)", len(chunk))
+			logrus.Infof("Leftover chunk values, chunking (%v)", chunk)
 			chunks <- chunk
 		}
 
