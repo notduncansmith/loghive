@@ -123,7 +123,7 @@ func (m *SegmentManager) Write(logs []*Log) error {
 	}
 
 	if len(errs) > 0 {
-		ic.L().Errorf("Errors assigning logs to segments: %v", errs)
+		ic.L().Warnf("Errors assigning logs to segments: %v", errs)
 	}
 
 	ic.L().Debugf("Segment batches to write: %v", segmentLogs)
@@ -312,7 +312,7 @@ func (m *SegmentManager) segmentChunks(domain, path string, chunkSize int, start
 			keytime := time.Time{}
 			kerr := keytime.UnmarshalText(kbz)
 			if kerr != nil {
-				logrus.Errorf("Error unmarshaling keytime %v", kerr)
+				logrus.Warnf("Error unmarshaling keytime %v", kerr)
 				continue
 			}
 			logrus.Debugf("Iterator at keytime %v", keytime)
