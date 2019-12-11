@@ -17,22 +17,23 @@ func newIC(method string) IC {
 	return IC{method, nil, nil}
 }
 
-func (ic IC) Clone() IC {
+func (ic IC) clone() IC {
 	return ic
 }
 
-func (ic IC) WithLog(l *Log) IC {
-	c := ic.Clone()
+func (ic IC) withLog(l *Log) IC {
+	c := ic.clone()
 	c.Log = l
 	return c
 }
 
-func (ic IC) WithSegment(s *Segment) IC {
-	c := ic.Clone()
+func (ic IC) withSegment(s *Segment) IC {
+	c := ic.clone()
 	c.Segment = s
 	return c
 }
 
+// L returns a logrus logger with fields set from the log context
 func (ic IC) L() *logrus.Entry {
 	var domain string
 	var logTimestamp time.Time

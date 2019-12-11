@@ -88,7 +88,7 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 
 	for _, s := range segments {
 		cur := m.SegmentMap[s.Domain]
-		l := ic.WithSegment(&s).L()
+		l := ic.withSegment(&s).L()
 		if cur == nil {
 			l.Debug("Initializing domain")
 			m.SegmentMap[s.Domain] = []Segment{s}
@@ -110,7 +110,7 @@ func (m *SegmentManager) Write(logs []*Log) error {
 	// first we batch each segment's logs together...
 	segmentLogs := map[string][]*Log{}
 	for _, log := range logs {
-		ic.WithLog(log).L().Debug("Assigning log segment for writing")
+		ic.withLog(log).L().Debug("Assigning log segment for writing")
 		s, err := m.segmentForLog(log)
 		if err != nil {
 			errs = append(errs, LogWriteFailure{err, *log, 1})
