@@ -371,10 +371,18 @@ func (m *SegmentManager) openDB(path string) (*badger.DB, error) {
 }
 
 func (m *SegmentManager) segmentsInRange(domain string, start, end time.Time) []Segment {
+	segments := m.SegmentMap[domain]
 	inRange := []Segment{}
+	rangeBegan := false
 	m.DoWithRLock(func() {
-		for _, s := range m.SegmentMap[domain] {
-			if s.Timestamp.After(start) && s.Timestamp.Before(end) {
+		for i, s := range segments {
+			if s.Timestamp.After(start) && !rangeBegan && s.Timestamp.Before(end) {
+				rangeBegan = true
+				if i > 0 && len(segments) > 1 {
+					inRange = append(inRange, segments[i-1])
+				}
+				inRange = append(inRange, s)
+			} else if s.Timestamp.Before(end) {
 				inRange = append(inRange, s)
 			}
 		}
