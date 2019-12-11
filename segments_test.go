@@ -184,25 +184,28 @@ func TestSegmentManagerRoundtrip(t *testing.T) {
 
 func TestSegmentSizedOut(t *testing.T) {
 	withTmp(t, "./fixtures/sm_sized_out", func(_ []Segment, sm *SegmentManager) {
+		// note: overhead on files is ~280 bytes
 		s, err := sm.CreateSegment("test", timestamp())
 		expectSuccess(t, "create segment", err)
-		l := NewLog("test", make([]byte, 128))
+		l := NewLog("test", []byte("1"))
 		expectSuccess(t, "write logs", sm.Write([]*Log{l}))
 
-		maxBytes := int64(64)
+		maxBytes := int64(256) // will size out after overhead
 		sizedOut, err := segmentSizedOut(s, maxBytes)
 		expectSuccess(t, "check segment size", err)
 
 		if !sizedOut {
-			t.Errorf("Expected segment %v to be sized out (%v bytes)", s, maxBytes)
+			size, _ := segmentSize(s)
+			t.Errorf("Expected segment %v (%v bytes) to be sized out (%v bytes)", s, size, maxBytes)
 		}
 
-		maxBytes = int64(1024)
+		maxBytes = int64(300)
 		sizedOut, err = segmentSizedOut(s, maxBytes)
 		expectSuccess(t, "checking segment size", err)
 
 		if sizedOut {
-			t.Errorf("Expected segment %v not to be sized out (%v bytes)", s, maxBytes)
+			size, _ := segmentSize(s)
+			t.Errorf("Expected segment %v (%v bytes) not to be sized out (%v bytes)", s, size, maxBytes)
 		}
 	})
 }

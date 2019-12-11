@@ -398,10 +398,15 @@ func segmentAgedOut(s Segment, now time.Time, maxDuration time.Duration) bool {
 }
 
 func segmentSizedOut(s Segment, maxBytes int64) (bool, error) {
-	f, err := os.Stat(s.Path)
+	size, err := segmentSize(s)
+	return size > maxBytes, err
+}
+
+func segmentSize(s Segment) (int64, error) {
+	f, err := os.Stat(s.Path + "/000000.vlog")
 	if err != nil {
-		return false, err
+		return 0, err
 	}
 
-	return f.Size() > maxBytes, nil
+	return f.Size(), nil
 }
