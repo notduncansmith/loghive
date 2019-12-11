@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 func expectSuccess(t *testing.T, task string, err error) {
@@ -59,7 +61,7 @@ func checkResults(t *testing.T, h *Hive, q *Query, expected []logstub) {
 			t.Errorf("Expected to get %v result(s), got %v", len(expected), resultCount+1)
 			t.FailNow()
 		}
-		fmt.Printf("Result %v: %v\n", resultCount, log)
+		logrus.Printf("Result %v: %v\n", resultCount, log)
 		expectedLine := string(expected[resultCount].line)
 		expectedDomain := expected[resultCount].domain
 

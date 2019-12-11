@@ -1,11 +1,11 @@
 package loghive
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/notduncansmith/march"
+	"github.com/sirupsen/logrus"
 )
 
 // Query is a set of parameters for querying logs
@@ -48,7 +48,7 @@ func (h *Hive) Query(q *Query) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Iterating domains %v\n", q.Domains)
+	logrus.Debugf("Iterating domains %v\n", q.Domains)
 	unfilteredDomainResultChans := h.sm.Iterate(q.Domains, q.Start, q.End, 512, 8)
 	unorderedDomainResultChans := make([]chan march.Ordered, len(unfilteredDomainResultChans))
 	for idx, channel := range unfilteredDomainResultChans {
@@ -56,17 +56,18 @@ func (h *Hive) Query(q *Query) error {
 		go func(i int, chunkChan chan []Log) {
 			defer close(unorderedDomainResultChans[i])
 			for chunk := range chunkChan {
-				fmt.Printf("Got chunk of size %v in domain %v\n", len(chunk), q.Domains[i])
+				logrus.Debugf("Got chunk of size %v in domain %v\n", len(chunk), q.Domains[i])
 				for _, log := range chunk {
 					if q.Filter(&log) {
-						fmt.Printf("Log accepted: %v", log)
+						logrus.Debugf("Log accepted: %v", log)
 						unorderedDomainResultChans[i] <- &log
 					} else {
-						fmt.Printf("Log rejected: %v", log)
+						logrus.Debugf("Log rejected: %v", log)
 					}
 				}
 			}
-			fmt.Println("Done with domain " + q.Domains[i])
+
+			logrus.Debugf("Done with domain %v", q.Domains[i])
 		}(idx, channel)
 	}
 	orderedCrossDomainResultChan := make(chan march.Ordered)

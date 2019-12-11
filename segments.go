@@ -13,6 +13,7 @@ import (
 
 	"github.com/dgraph-io/badger"
 	"github.com/notduncansmith/mutable"
+	"github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack"
 )
 
@@ -57,7 +58,7 @@ func (m *SegmentManager) Close() {
 func (m *SegmentManager) ScanDir() ([]Segment, error) {
 	_, err := os.Stat(m.Path)
 	if err != nil {
-		fmt.Println("Creating " + m.Path)
+		logrus.Debugf("Creating %v", m.Path)
 		err = os.MkdirAll(m.Path, 0700)
 	}
 	if err != nil {
@@ -68,15 +69,15 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 	if err != nil {
 		return nil, errUnreachable(m.Path, err.Error())
 	}
-	fmt.Printf("Scanned path %v, found %v files\n", m.Path, len(files))
+	logrus.Infof("Scanned path %v, found %v files\n", m.Path, len(files))
 
 	segments := []Segment{}
 	for i, file := range files {
 		if !strings.HasPrefix(file.Name(), segmentFilenamePrefix) {
-			fmt.Printf("Skipping non-segment file %v\n", file.Name())
+			logrus.Debugf("Skipping non-segment file %v\n", file.Name())
 			continue
 		}
-		fmt.Printf("Reading segment #%v meta from %v\n", i, file.Name())
+		logrus.Infof("Reading segment #%v meta from %v\n", i, file.Name())
 		segment, err := m.readSegmentMeta(file.Name())
 		if err != nil {
 			return nil, errMalformedSegment(m.Path, err)
@@ -119,17 +120,21 @@ func (m *SegmentManager) Write(logs []*Log) []LogWriteFailure {
 		segmentLogs[s.Path] = append(segmentLogs[s.Path], log)
 	}
 
-	fmt.Println("Segment batches to write", segmentLogs, errs)
+	if len(errs) > 0 {
+		logrus.Errorf("Errors assigning logs to segments: %v", errs)
+	}
+
+	logrus.Debugf("Segment batches to write: %v", segmentLogs)
 
 	// ...then write each batch
 	wg := sync.WaitGroup{}
 	for path, logs := range segmentLogs {
 		wg.Add(1)
-		fmt.Println("Writing batch at path " + path)
+		logrus.Debugf("Writing batch at path %v", path)
 		go func(p string, l []*Log) {
 			err := m.writeSegmentLogs(p, l)
 			if err != nil {
-				fmt.Println("Log write failure", err)
+				logrus.Errorf("Log write failure %v", err)
 				mut.DoWithRWLock(func() {
 					errs = append(errs, LogWriteFailure{err, *l[0], len(l)})
 				})
@@ -138,7 +143,7 @@ func (m *SegmentManager) Write(logs []*Log) []LogWriteFailure {
 		}(path, logs)
 	}
 	wg.Wait()
-	fmt.Printf("Wrote %v logs\n", len(logs))
+	logrus.Debugf("Wrote %v logs\n", len(logs))
 
 	return errs
 }
@@ -152,9 +157,9 @@ func (m *SegmentManager) Iterate(domains []string, start, end time.Time, chunkSi
 		go func(i int, d string) {
 			defer close(chunkChans[i])
 			segments := m.segmentsInRange(d, start, end)
-			fmt.Printf("Segments in range: %v\n", segments)
+			logrus.Debugf("Segments in range: %v\n", segments)
 			for _, segment := range segments {
-				fmt.Printf("Iterating segment %v @ %v\n", segment.Domain, segment.Path)
+				logrus.Debugf("Iterating segment %v @ %v\n", segment.Domain, segment.Path)
 				err := m.segmentChunks(d, segment.Path, chunkSize, start, end, chunkChans[i])
 				if err != nil {
 					log.Println(err)
@@ -301,7 +306,7 @@ func (m *SegmentManager) segmentChunks(domain, path string, chunkSize int, start
 		chunk := []Log{}
 		fmt.Println("IT: " + string(timeToBytes(start)))
 		for it.Seek(timeToBytes(start)); it.Valid(); it.Next() {
-			fmt.Printf("Chunk size: %v\n", len(chunk))
+			logrus.Infof("Chunk size: %v\n", len(chunk))
 			kbz := it.Item().Key()
 			fmt.Println("IT: " + string(kbz))
 			if string(kbz) == segmentMetaKey {
@@ -310,10 +315,10 @@ func (m *SegmentManager) segmentChunks(domain, path string, chunkSize int, start
 			keytime := time.Time{}
 			kerr := keytime.UnmarshalText(kbz)
 			if kerr != nil {
-				fmt.Printf("Error unmarshaling keytime %v\n", kerr)
+				logrus.Infof("Error unmarshaling keytime %v\n", kerr)
 				return err
 			}
-			fmt.Printf("Iterator at keytime %v\n", keytime)
+			logrus.Infof("Iterator at keytime %v\n", keytime)
 			if keytime.Before(end) {
 				fmt.Println("In range")
 				it.Item().Value(func(val []byte) error {
@@ -332,7 +337,7 @@ func (m *SegmentManager) segmentChunks(domain, path string, chunkSize int, start
 		}
 
 		if len(chunk) > 0 {
-			fmt.Printf("Leftover chunk values, chunking (%v)", len(chunk))
+			logrus.Infof("Leftover chunk values, chunking (%v)", len(chunk))
 			chunks <- chunk
 		}
 

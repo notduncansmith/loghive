@@ -1,10 +1,11 @@
 package loghive
 
 import (
-	"fmt"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 func withSM(t *testing.T, path string, f func([]Segment, *SegmentManager)) {
@@ -110,7 +111,7 @@ func TestSegmentManagerRoundtrip(t *testing.T) {
 		test2, err := sm.CreateSegment("test2", e2)
 		expectSuccess(t, "create segment test2", err)
 
-		fmt.Println("Created segments", test1, test2)
+		logrus.Println("Created segments", test1, test2)
 
 		log1 := Log{"test1", e1.Add(time.Minute), []byte("hello")}
 		log2 := Log{"test2", e2.Add(time.Minute), []byte("hello")}
