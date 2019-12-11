@@ -4,9 +4,13 @@
 
 - [x] Trim unused functionality
 
+- [ ] 95% test coverage (or better)
+
 - [ ] Better usage examples
 
-- [ ] Thorough hosted docs
+- [ ] Thorough conceptual/behavioral (non-Godoc) docs
+
+- [ ] Hosted docs
 
 - [ ] Segment Deletion
 
@@ -30,20 +34,18 @@
 
     - [x] More than 1 segment per domain during scan
 
-    - [ ] Sorting query results during delivery
+    - [x] Sorting query results during delivery
 
 - [ ] Untested Sad Paths:
 
     - [ ] Err creating segment during flush
 
-    - [ ] Err flushing logs
+    - [x] Err flushing logs
 
     - [ ] Err writing log KVs
 
-    - [ ] Err opening DB
+    - [x] Err opening DB
 
-
-    - [ ] Err matching log to domain after enqueued
     - [x] Err unmarshalling key during iteration
 
     - [x] Err unable to backfill
