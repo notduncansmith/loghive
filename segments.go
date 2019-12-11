@@ -1,9 +1,7 @@
 package loghive
 
 import (
-	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -162,7 +160,7 @@ func (m *SegmentManager) Iterate(domains []string, start, end time.Time, chunkSi
 				logrus.Debugf("Iterating segment %v @ %v\n", segment.Domain, segment.Path)
 				err := m.segmentChunks(d, segment.Path, chunkSize, start, end, chunkChans[i])
 				if err != nil {
-					log.Println(err)
+					logrus.Println(err)
 					return
 				}
 			}
@@ -286,7 +284,7 @@ func (m *SegmentManager) writeSegmentLogs(path string, logs []*Log) error {
 				return err
 			}
 		}
-		fmt.Println("Finished writing logs", logs)
+		logrus.Debugf("Finished writing logs %v", logs)
 		return nil
 	})
 }
@@ -303,34 +301,33 @@ func (m *SegmentManager) segmentChunks(domain, path string, chunkSize int, start
 		it := txn.NewIterator(opts)
 		defer it.Close()
 		chunk := []Log{}
-		fmt.Println("IT: " + string(timeToBytes(start)))
 		for it.Seek(timeToBytes(start)); it.Valid(); it.Next() {
-			logrus.Infof("Chunk size: %v\n", len(chunk))
+			logrus.Debugf("Chunk size: %v\n", len(chunk))
 			kbz := it.Item().Key()
-			fmt.Println("IT: " + string(kbz))
+			logrus.Debugf("Iterator at: %v", string(kbz))
 			if string(kbz) == segmentMetaKey {
 				continue
 			}
 			keytime := time.Time{}
 			kerr := keytime.UnmarshalText(kbz)
 			if kerr != nil {
-				logrus.Infof("Error unmarshaling keytime %v\n", kerr)
-				return err
+				logrus.Errorf("Error unmarshaling keytime %v\n", kerr)
+				continue
 			}
-			logrus.Infof("Iterator at keytime %v\n", keytime)
+			logrus.Debugf("Iterator at keytime %v\n", keytime)
 			if keytime.Before(end) {
-				fmt.Println("In range")
+				logrus.Debug("In range")
 				it.Item().Value(func(val []byte) error {
 					chunk = append(chunk, Log{domain, keytime, val})
 					if len(chunk) == chunkSize {
-						fmt.Println("Chunking", chunk)
+						logrus.Debug("Chunking", chunk)
 						chunks <- chunk
 						chunk = []Log{}
 					}
 					return nil
 				})
 			} else {
-				fmt.Println("End of range")
+				logrus.Debug("End of range")
 				break
 			}
 		}
