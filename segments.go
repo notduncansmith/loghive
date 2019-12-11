@@ -208,35 +208,34 @@ func (m *SegmentManager) CreateNeededSegments(maxBytes int64, maxDuration time.D
 	now := timestamp()
 	errs := []error{}
 
+	createFor := func(d string) {
+		_, err := m.CreateSegment(d, now)
+		if err != nil {
+			errs = append(errs)
+		}
+	}
+
 	for domain, segments := range m.SegmentMap {
 		latest := segments[len(segments)-1]
-		if latest.Timestamp.Add(maxDuration).Before(now) {
-			fmt.Printf("Segment %v too old, creating new segment\n", latest.Path)
-			_, err := m.CreateSegment(domain, now)
-			if err != nil {
-				errs = append(errs)
-			}
+
+		if segmentAgedOut(latest, now, maxDuration) {
+			logrus.Infof("Segment %v retired (age), creating new segment\n", latest.Path)
+			createFor(domain)
 			continue
 		}
-		f, err := os.Stat(latest.Path)
+
+		sizedOut, err := segmentSizedOut(latest, maxBytes)
 		if err != nil {
 			errs = append(errs)
 			continue
 		}
-		if f.Size() > maxBytes {
-			fmt.Printf("Segment %v too large, creating new segment\n", latest.Path)
-			_, err := m.CreateSegment(domain, now)
-			if err != nil {
-				errs = append(errs)
-			}
+		if sizedOut {
+			logrus.Infof("Segment %v retired (size), creating new segment\n", latest.Path)
+			createFor(domain)
 		}
 	}
 
-	if len(errs) > 0 {
-		return coalesceErrors("Create Needed Segments", errs)
-	}
-
-	return nil
+	return coalesceErrors("Create Needed Segments", errs)
 }
 
 // readSegmentMeta fetches the metadata stored in a segment DB
@@ -381,4 +380,17 @@ func (m *SegmentManager) segmentsInRange(domain string, start, end time.Time) []
 		}
 	})
 	return inRange
+}
+
+func segmentAgedOut(s Segment, now time.Time, maxDuration time.Duration) bool {
+	return s.Timestamp.Add(maxDuration).Before(now)
+}
+
+func segmentSizedOut(s Segment, maxBytes int64) (bool, error) {
+	f, err := os.Stat(s.Path)
+	if err != nil {
+		return false, err
+	}
+
+	return f.Size() > maxBytes, nil
 }
