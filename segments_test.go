@@ -54,12 +54,25 @@ func TestSegmentManagerCreate(t *testing.T) {
 
 func TestSegmentManagerScan(t *testing.T) {
 	withSM(t, "./fixtures/sm_scan", func(segments []Segment, sm *SegmentManager) {
-		if len(segments) != 1 {
-			t.Errorf("Expected 1 segment, got %v", segments)
+		if len(segments) != 3 {
+			t.Errorf("Expected 2 segments, got %v", segments)
 		}
-		s := segments[0]
-		if s.Path != "fixtures/sm_scan/.data/segment-2013-02-05T00:00:00Z" {
-			t.Errorf("Incorrect segment path %v", s.Path)
+		s0 := segments[0]
+		if s0.Path != "fixtures/sm_scan/.data/segment-2013-02-05T00:00:00Z" {
+			t.Errorf("Incorrect segment path %v", s0.Path)
+		}
+
+		s1 := segments[1]
+		if s1.Path != "fixtures/sm_scan/.data/segment-2019-12-11T06:47:11.072339Z" {
+			t.Errorf("Incorrect segment path %v", s1.Path)
+		}
+
+		if len(sm.SegmentMap["test"]) != 2 {
+			t.Errorf("Expected to find 2 test segments, found %v", sm.SegmentMap)
+		}
+
+		if len(sm.SegmentMap["otherdomain"]) != 1 {
+			t.Errorf("Expected to find 1 otherdomain segments, found %v", sm.SegmentMap)
 		}
 	})
 

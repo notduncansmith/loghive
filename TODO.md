@@ -26,9 +26,9 @@
 
     - [x] Should create new segment based on duration
 
-    - [ ] Sort segments during scan
+    - [x] Sort segments during scan
 
-    - [ ] More than 1 segment per domain during scan
+    - [x] More than 1 segment per domain during scan
 
     - [ ] Sorting query results during delivery
 
