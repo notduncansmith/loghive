@@ -1,8 +1,6 @@
 package loghive
 
 import (
-	"time"
-
 	"github.com/sirupsen/logrus"
 )
 
@@ -35,26 +33,22 @@ func (ic IC) withSegment(s *Segment) IC {
 
 // L returns a logrus logger with fields set from the log context
 func (ic IC) L() *logrus.Entry {
-	var domain string
-	var logTimestamp time.Time
-	var logLine string
-	var segmentPath string
+	fields := logrus.Fields{
+		"method": ic.Method,
+	}
 
 	if l := ic.Log; l != nil {
-		domain = l.Domain
-		logTimestamp = l.Timestamp
-		logLine = string(l.Line)
+		fields["domain"] = l.Domain
+		fields["logTimestamp"] = l.Timestamp
+		fields["logLine"] = string(l.Line)
 	}
 
 	if s := ic.Segment; s != nil {
-		segmentPath = s.Path
+		if fields["domain"] == "" {
+			fields["domain"] = s.Domain
+		}
+		fields["segmentPath"] = s.Path
 	}
 
-	return logrus.WithFields(logrus.Fields{
-		"method":       ic.Method,
-		"domain":       domain,
-		"logTimestamp": logTimestamp,
-		"logLine":      logLine,
-		"segmentPath":  segmentPath,
-	})
+	return logrus.WithFields(fields)
 }
