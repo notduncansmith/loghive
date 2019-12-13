@@ -147,7 +147,6 @@ func (m *SegmentManager) Write(logs []*Log) error {
 		}(path, pathLogs)
 	}
 	wg.Wait()
-	ic.L().Debugf("Wrote %v logs", len(logs))
 
 	return coalesceLogWriteFailures(errs)
 }
@@ -278,16 +277,29 @@ func (m *SegmentManager) writeSegmentLogs(path string, logs []*Log) error {
 	if err != nil {
 		return err
 	}
-	return db.Update(func(tx *badger.Txn) error {
-		var err error
-		for _, log := range logs {
-			if err = tx.Set(timeToBytes(log.Timestamp), log.Line); err != nil {
-				return err
+	tx := db.NewTransaction(true)
+	var errs []error
+	for _, log := range logs {
+		if err := tx.Set(timeToBytes(log.Timestamp), log.Line); err != nil {
+			if err == badger.ErrTxnTooBig {
+				if err = tx.Commit(); err != nil {
+					errs = append(errs, err)
+				}
+				tx = db.NewTransaction(true)
+				if err = tx.Set(timeToBytes(log.Timestamp), log.Line); err != nil {
+					errs = append(errs, err)
+				}
+			} else {
+				errs = append(errs, err)
 			}
 		}
-		logrus.Debugf("Finished writing logs %v", logs)
-		return nil
-	})
+	}
+
+	if err = tx.Commit(); err != nil {
+		errs = append(errs, err)
+	}
+
+	return coalesceErrors("writing logs", errs)
 }
 
 // segmentChunks delivers chunks of logs of the requested size from the selected segment on the given channel

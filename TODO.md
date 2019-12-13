@@ -4,6 +4,8 @@
 
 - [x] Trim unused functionality
 
+- [ ] Replace BadgerDB with SQLite for better reliability
+
 - [ ] 95% test coverage (or better)
 
 - [ ] Better usage examples
@@ -36,13 +38,19 @@
 
     - [x] Sorting query results during delivery
 
+    - [x] Segment creation during flush
+
+    - [ ] Querying across multiple domains/segments
+
 - [ ] Untested Sad Paths:
 
-    - [ ] Err creating segment during flush
+    - [x] Err creating segment during flush
 
     - [x] Err flushing logs
 
     - [ ] Err writing log KVs
+
+        - This one is tricky, I'm having trouble forcing BadgerDB to return an error from a write. Open issue: https://github.com/dgraph-io/badger/issues/1159
 
     - [x] Err opening DB
 

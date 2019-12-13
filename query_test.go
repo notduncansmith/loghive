@@ -44,7 +44,7 @@ func TestQueryFilters(t *testing.T) {
 		}
 
 		for _, q := range queries {
-			checkResults(t, h, q, []logstub{
+			checkLogs(t, h, q, []logstub{
 				logstub{"test", "foo"},
 			})
 		}
@@ -55,7 +55,7 @@ func TestQueryFilters(t *testing.T) {
 		}
 
 		for _, q := range negativeQueries {
-			checkResults(t, h, q, []logstub{})
+			checkLogs(t, h, q, []logstub{})
 		}
 	})
 }

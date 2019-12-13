@@ -61,6 +61,9 @@ func (h *Hive) Enqueue(domain string, line []byte) (bbq.Callback, error) {
 	return h.incoming.Enqueue(log), nil
 }
 
+// FailToLogThisLine is an ugly hack that exists because I can't figure out how to force a write failure during tests.
+const FailToLogThisLine = "!~!~!~_internal_::thislogshouldfail👎"
+
 // flush converts bbq interface{} items to *Logs and writes them, then creates any needed segments
 func (h *Hive) flush(items []interface{}) error {
 	logs := []*Log{}
@@ -70,20 +73,25 @@ func (h *Hive) flush(items []interface{}) error {
 	}
 	logrus.Debugf("Flushing %v logs", len(logs))
 	err := h.sm.Write(logs)
-
 	if err != nil {
 		logrus.Errorf("Error flushing logs %v", err)
 		return err
 	}
 
-	// warning: ugly hack because I can't figure out how to force a write failure
+	err = h.sm.CreateNeededSegments(h.config.SegmentMaxBytes, h.config.SegmentMaxDuration)
+	if err != nil {
+		logrus.Errorf("Error creating new segments %v", err)
+		return err
+	}
+
+	// warning: ugly hack
 	if h.config.InternalLogLevel == logrus.DebugLevel {
-		if string(logs[0].Line) == "shouldFail" {
+		if string(logs[0].Line) == FailToLogThisLine {
 			return errors.New("Synthetic flush failure")
 		}
 	}
 
-	return h.sm.CreateNeededSegments(h.config.SegmentMaxBytes, h.config.SegmentMaxDuration)
+	return nil
 }
 
 func (h *Hive) domainValid(domain string) bool {
