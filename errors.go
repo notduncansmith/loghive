@@ -52,8 +52,8 @@ func errInvalidLogDomain(domain string) error {
 	return fmt.Errorf("Attempted to log to invalid domain: %v", domain)
 }
 
-func errUnableToBackfill(domain string, timestamp time.Time) error {
-	return fmt.Errorf("Attempted to backfill log in domain %v with timestamp %v", domain, string(timeToBytes(timestamp)))
+func errUnableToBackfill(domain string, segmentTime, timestamp time.Time) error {
+	return fmt.Errorf("Attempted to backfill log in domain %v (segment time %v) with timestamp %v", domain, string(timeToBytes(segmentTime)), string(timeToBytes(timestamp)))
 }
 
 func errLineMissing() error {

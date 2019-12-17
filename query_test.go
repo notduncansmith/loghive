@@ -6,7 +6,7 @@ import (
 )
 
 func TestQueryValidation(t *testing.T) {
-	withHive(t, "./fixtures/roundtrip_query", []string{"test"}, func(h *Hive) {
+	withHive(t, "./fixtures/query_valid", []string{"test"}, func(h *Hive) {
 		now := timestamp()
 		oneMinuteFromNow := now.Add(time.Duration(1) * time.Minute)
 		twoMinutesFromNow := now.Add(time.Duration(2) * time.Minute)
@@ -30,7 +30,7 @@ func TestQueryValidation(t *testing.T) {
 }
 
 func TestQueryFilters(t *testing.T) {
-	withHive(t, "./fixtures/roundtrip_query", []string{"test"}, func(h *Hive) {
+	withHive(t, "./fixtures/query_filters", []string{"test"}, func(h *Hive) {
 		stubLogs(t, h, []logstub{
 			logstub{"test", "foo"},
 		})

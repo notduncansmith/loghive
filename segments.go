@@ -1,6 +1,9 @@
 package loghive
 
 import (
+	"database/sql"
+	"errors"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -9,15 +12,15 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dgraph-io/badger"
+	_ "github.com/mattn/go-sqlite3" // enable sqlite3 support
 	"github.com/notduncansmith/mutable"
 	"github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack"
 )
 
 const segmentMetaKey = "_meta"
-const segmentFilenamePrefix = "segment-"
-const segmentDir = ".data"
+const segmentDirPrefix = "segment-"
+const segmentDataFile = "data.db"
 
 // Segment is a file that represents a contiguous subset of logs in a domain starting at a timestamp
 type Segment struct {
@@ -27,7 +30,7 @@ type Segment struct {
 }
 
 // DBMap is a map of DB paths to open database handles
-type DBMap = map[string]*badger.DB
+type DBMap = map[string]*sql.DB
 
 // SegmentMap is a map of Segments by Domain
 type SegmentMap = map[string][]Segment
@@ -37,12 +40,13 @@ type SegmentManager struct {
 	*mutable.RW
 	DBMap
 	SegmentMap
-	Path string
+	Path          string
+	PathsToDelete []string
 }
 
 // NewSegmentManager creates a new SegmentManager for a specified path
 func NewSegmentManager(path string) *SegmentManager {
-	return &SegmentManager{mutable.NewRW("SegmentManager"), DBMap{}, SegmentMap{}, filepath.Join(path, segmentDir)}
+	return &SegmentManager{mutable.NewRW("SegmentManager"), DBMap{}, SegmentMap{}, path, []string{}}
 }
 
 // Close closes all managed DBs
@@ -70,7 +74,7 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 
 	segments := []Segment{}
 	for i, file := range files {
-		if !strings.HasPrefix(file.Name(), segmentFilenamePrefix) {
+		if !strings.HasPrefix(file.Name(), segmentDirPrefix) {
 			ic.L().Debugf("Skipping non-segment file %v", file.Name())
 			continue
 		}
@@ -79,6 +83,7 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 		if err != nil {
 			return nil, errMalformedSegment(m.Path, err)
 		}
+
 		segments = append(segments, segment)
 	}
 
@@ -93,8 +98,18 @@ func (m *SegmentManager) ScanDir() ([]Segment, error) {
 			l.Debug("Initializing domain")
 			m.SegmentMap[s.Domain] = []Segment{s}
 		} else {
-			l.Debug("Adding segment to domain")
-			m.SegmentMap[s.Domain] = append(cur, s)
+			alreadyLoaded := false
+			for _, existing := range m.SegmentMap[s.Domain] {
+				if s.Path == existing.Path {
+					ic.L().Debugf("Skipping already-loaded segment %v", s.Path)
+					alreadyLoaded = true
+					break
+				}
+			}
+			if !alreadyLoaded {
+				l.Debug("Adding segment to domain")
+				m.SegmentMap[s.Domain] = append(cur, s)
+			}
 		}
 	}
 
@@ -134,6 +149,7 @@ func (m *SegmentManager) Write(logs []*Log) error {
 		wg.Add(1)
 		ic.L().Debugf("Writing batch at path %v", path)
 		go func(p string, l []*Log) {
+			defer wg.Done()
 			err := m.writeSegmentLogs(p, l)
 			if err != nil {
 				ic.L().Errorf("Log write failure %v", err)
@@ -143,7 +159,6 @@ func (m *SegmentManager) Write(logs []*Log) error {
 			} else {
 				ic.L().Debugf("Wrote %v logs to %v", len(l), p)
 			}
-			wg.Done()
 		}(path, pathLogs)
 	}
 	wg.Wait()
@@ -175,12 +190,13 @@ func (m *SegmentManager) Iterate(domains []string, start, end time.Time, chunkSi
 	return chunkChans
 }
 
-// CreateSegment creates a BadgerDB file for a segment and stores its metadata in it
+// CreateSegment creates a SQLite file for a segment and stores its metadata in it
 func (m *SegmentManager) CreateSegment(domain string, timestamp time.Time) (Segment, error) {
-	path := filepath.Join(m.Path, segmentFilenamePrefix+string(timeToBytes(timestamp)))
-	segment := Segment{path, domain, timestamp}
+	relativePath := segmentDirPrefix + string(timeToBytes(timestamp))
+	segment := Segment{relativePath, domain, timestamp}
+	err := os.Mkdir(filepath.Join(m.Path, relativePath), 0700)
 
-	db, err := m.openDB(path)
+	db, err := m.openDB(relativePath)
 	if err != nil {
 		return Segment{}, err
 	}
@@ -190,9 +206,15 @@ func (m *SegmentManager) CreateSegment(domain string, timestamp time.Time) (Segm
 		return Segment{}, err
 	}
 
-	err = db.Update(func(tx *badger.Txn) error {
-		return tx.Set([]byte(segmentMetaKey), bz)
-	})
+	stmt, err := db.Prepare("insert into kv(k, v) values (?, ?)")
+	res, err := stmt.Exec(segmentMetaKey, bz)
+	if err != nil {
+		return segment, err
+	}
+
+	id, ierr := res.LastInsertId()
+	affected, aerr := res.RowsAffected()
+	logrus.Debugf("Result of setting meta key (id: %v): %v %v %v", id, ierr, affected, aerr)
 
 	m.DoWithRWLock(func() {
 		cur := m.SegmentMap[segment.Domain]
@@ -212,7 +234,7 @@ func (m *SegmentManager) CreateNeededSegments(maxBytes int64, maxDuration time.D
 	errs := []error{}
 
 	createFor := func(d string) {
-		_, err := m.CreateSegment(d, now)
+		_, err := m.CreateSegment(d, timestamp())
 		if err != nil {
 			errs = append(errs)
 		}
@@ -227,7 +249,7 @@ func (m *SegmentManager) CreateNeededSegments(maxBytes int64, maxDuration time.D
 			continue
 		}
 
-		sizedOut, err := segmentSizedOut(latest, maxBytes)
+		sizedOut, err := segmentSizedOut(m.segmentPath(latest.Path), maxBytes)
 		if err != nil {
 			errs = append(errs)
 			continue
@@ -241,22 +263,81 @@ func (m *SegmentManager) CreateNeededSegments(maxBytes int64, maxDuration time.D
 	return coalesceErrors("Create Needed Segments", errs)
 }
 
+// MarkSegmentForDeletion will mark a segment to deleted during the next DeleteMarkedSegments
+func (m *SegmentManager) MarkSegmentForDeletion(s Segment) error {
+	var err error
+
+	m.DoWithRWLock(func() {
+		for _, p := range m.PathsToDelete {
+			if p == s.Path {
+				err = errors.New("Already marked segment for deletion")
+				return
+			}
+		}
+		m.PathsToDelete = append(m.PathsToDelete, s.Path)
+	})
+
+	return err
+}
+
+// DeleteMarkedSegments will delete any segments marked for deletion
+func (m *SegmentManager) DeleteMarkedSegments() error {
+	errs := []error{}
+
+	for _, p := range m.PathsToDelete {
+		if err := m.deleteSegment(p); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return coalesceErrors("delete segments", errs)
+}
+
+func (m *SegmentManager) deleteSegment(relativePath string) error {
+	var err error
+	fullPath := m.segmentPath(relativePath)
+	m.DoWithRWLock(func() {
+		err = m.DBMap[fullPath].Close()
+		if err != nil {
+			return
+		}
+		delete(m.DBMap, fullPath)
+		err = os.RemoveAll(filepath.Join(m.Path, relativePath))
+	})
+	return err
+}
+
 // readSegmentMeta fetches the metadata stored in a segment DB
-func (m *SegmentManager) readSegmentMeta(fileName string) (Segment, error) {
+func (m *SegmentManager) readSegmentMeta(relativePath string) (Segment, error) {
 	var segment Segment
-	db, err := m.openDB(filepath.Join(m.Path, fileName))
+
+	db, err := m.openDB(relativePath)
 	if err != nil {
 		return segment, err
 	}
-	err = db.View(func(tx *badger.Txn) error {
-		item, err := tx.Get([]byte(segmentMetaKey))
+
+	rows, err := db.Query("select * from kv where id = 1")
+	if err != nil {
+		return segment, err
+	}
+
+	var id int
+	var k string
+	var v string
+
+	for rows.Next() {
+		err = rows.Scan(&id, &k, &v)
 		if err != nil {
-			return err
+			return segment, err
 		}
-		return item.Value(func(val []byte) error {
-			return msgpack.Unmarshal(val, &segment)
-		})
-	})
+		err = msgpack.Unmarshal([]byte(v), &segment)
+		break
+	}
+	if segment.Path == "" {
+		return segment, errMalformedSegment(relativePath, errors.New("No metadata available"))
+	}
+	segment.Timestamp = segment.Timestamp.UTC()
+
 	return segment, err
 }
 
@@ -265,104 +346,88 @@ func (m *SegmentManager) segmentForLog(l *Log) (Segment, error) {
 	domainSegments := m.SegmentMap[l.Domain]
 	segment := domainSegments[len(domainSegments)-1]
 	if l.Timestamp.Before(segment.Timestamp) {
-		return Segment{}, errUnableToBackfill(l.Domain, l.Timestamp)
+		return Segment{}, errUnableToBackfill(l.Domain, segment.Timestamp, l.Timestamp)
 	}
 
 	return segment, nil
 }
 
 // writeSegmentLogs writes a batch of logs to a segment DB
-func (m *SegmentManager) writeSegmentLogs(path string, logs []*Log) error {
-	db, err := m.openDB(path)
+func (m *SegmentManager) writeSegmentLogs(relativePath string, logs []*Log) error {
+	db, err := m.openDB(relativePath)
 	if err != nil {
 		return err
 	}
-	tx := db.NewTransaction(true)
-	var errs []error
+
+	valueStrings := make([]string, 0, len(logs))
+	valueArgs := make([]interface{}, 0, len(logs)*2)
 	for _, log := range logs {
-		if err := tx.Set(timeToBytes(log.Timestamp), log.Line); err != nil {
-			if err == badger.ErrTxnTooBig {
-				if err = tx.Commit(); err != nil {
-					errs = append(errs, err)
-				}
-				tx = db.NewTransaction(true)
-				if err = tx.Set(timeToBytes(log.Timestamp), log.Line); err != nil {
-					errs = append(errs, err)
-				}
-			} else {
-				errs = append(errs, err)
-			}
+		if string(log.Line) == SyntheticFailureWrite {
+			return errors.New("Synthetic write failure")
 		}
+		valueStrings = append(valueStrings, "(?, ?)")
+		valueArgs = append(valueArgs, log.Timestamp.UnixNano())
+		valueArgs = append(valueArgs, string(log.Line))
 	}
-
-	if err = tx.Commit(); err != nil {
-		errs = append(errs, err)
-	}
-
-	return coalesceErrors("writing logs", errs)
+	stmt := fmt.Sprintf("insert into logs(t, l) values %s", strings.Join(valueStrings, ","))
+	res, err := db.Exec(stmt, valueArgs...)
+	id, ierr := res.LastInsertId()
+	affected, aerr := res.RowsAffected()
+	logrus.Debugf("Log write result (id: %v): %v %v %v", id, ierr, affected, aerr)
+	return err
 }
 
 // segmentChunks delivers chunks of logs of the requested size from the selected segment on the given channel
-func (m *SegmentManager) segmentChunks(domain, path string, chunkSize int, start, end time.Time, chunks chan []Log) error {
-	db, err := m.openDB(path)
+func (m *SegmentManager) segmentChunks(domain, relativePath string, chunkSize int, start, end time.Time, chunks chan []Log) error {
+	db, err := m.openDB(relativePath)
 	if err != nil {
 		return err
 	}
-	return db.View(func(txn *badger.Txn) error {
-		opts := badger.DefaultIteratorOptions
-		opts.PrefetchValues = false // key-only iteration
-		it := txn.NewIterator(opts)
-		defer it.Close()
-		var chunk []Log
-		for it.Seek(timeToBytes(start)); it.Valid(); it.Next() {
-			logrus.Debugf("Chunk size: %v", len(chunk))
-			kbz := it.Item().Key()
-			logrus.Debugf("Iterator at: %v", string(kbz))
-			if string(kbz) == segmentMetaKey {
-				continue
-			}
-			keytime := time.Time{}
-			kerr := keytime.UnmarshalText(kbz)
-			if kerr != nil {
-				logrus.Warnf("Error unmarshaling keytime %v", kerr)
-				continue
-			}
-			logrus.Debugf("Iterator at keytime %v", keytime)
-			if keytime.Before(end) {
-				logrus.Debug("In range")
-				it.Item().Value(func(val []byte) error {
-					logVal := make([]byte, len(val))
-					copy(logVal, val)
-					logToAdd := Log{domain, keytime, logVal}
-					logrus.Debugf("Adding log to chunk %v", logToAdd)
-					chunk = append(chunk, logToAdd)
-					logrus.Debugf("New chunk %v", chunk)
-					if len(chunk) == chunkSize {
-						logrus.Debugf("Appending chunk %v", chunk)
-						chunks <- chunk
-						chunk = []Log{}
-					}
-					return nil
-				})
-			} else {
-				logrus.Debug("End of range")
-				break
-			}
-		}
+	rows, err := db.Query("select * from logs where t >= ? and t <= ?", start.UnixNano(), end.UnixNano())
+	if err != nil {
+		return err
+	}
 
-		if len(chunk) > 0 {
-			logrus.Infof("Leftover chunk values, chunking (%v)", chunk)
+	var chunk []Log
+	var chunkCount int
+	var id int
+	var timestampInt int64
+	var lineStr string
+
+	for rows.Next() {
+		err = rows.Scan(&id, &timestampInt, &lineStr)
+		if err != nil {
+			return err
+		}
+		logToAdd := Log{domain, time.Unix(0, timestampInt).UTC(), []byte(lineStr)}
+		logrus.Debugf("Adding log to chunk %v %v", logToAdd, relativePath)
+		chunk = append(chunk, logToAdd)
+		if len(chunk) == chunkSize {
+			chunkCount++
+			logrus.Debugf("Appending chunk %v (count %v) %v", chunk, chunkCount, relativePath)
 			chunks <- chunk
+			chunk = []Log{}
 		}
+	}
 
-		return nil
-	})
+	if len(chunk) > 0 {
+		logrus.Infof("Leftover chunk values, chunking (%v) %v", chunk, relativePath)
+		chunks <- chunk
+	}
+
+	err = rows.Err()
+	if err != nil {
+		rows.Close()
+		return err
+	}
+
+	return rows.Close()
 }
 
 // openDB opens a DB at a path, or returns one that has already been opened
-func (m *SegmentManager) openDB(path string) (*badger.DB, error) {
-	fullPath := filepath.Join(path)
-	var db *badger.DB
+func (m *SegmentManager) openDB(relativePath string) (*sql.DB, error) {
+	var db *sql.DB
+	fullPath := m.segmentPath(relativePath)
 
 	m.DoWithRLock(func() {
 		db = m.DBMap[fullPath]
@@ -372,10 +437,39 @@ func (m *SegmentManager) openDB(path string) (*badger.DB, error) {
 		return db, nil
 	}
 
-	db, err := badger.Open(badger.DefaultOptions(fullPath))
-
+	db, err := sql.Open("sqlite3", fullPath)
 	if err != nil {
-		return nil, errUnreachable(fullPath, err.Error())
+		return nil, err
+	}
+	logrus.Debugf("Opened db %v", db)
+
+	stmts := []string{
+		`pragma journal_mode = WAL;`,
+		`create table if not exists logs(
+			id integer primary key,
+			t integer,
+			l text
+		);`,
+		`create table if not exists kv(
+			id integer primary key,
+			k text,
+			v blob
+		);`,
+	}
+
+	for _, s := range stmts {
+		stmt, err := db.Prepare(s)
+		if err != nil {
+			logrus.Debugf("Error loading schema: %v %v", s, stmt)
+			return nil, err
+		}
+
+		res, err := stmt.Exec()
+		if err != nil {
+			logrus.Debugf("Error loading schema: %v %v", s, res)
+			return nil, err
+		}
+		logrus.Debugf("Result: %v", res)
 	}
 
 	m.DoWithRWLock(func() {
@@ -405,20 +499,29 @@ func (m *SegmentManager) segmentsInRange(domain string, start, end time.Time) []
 	return inRange
 }
 
+func (m *SegmentManager) segmentPath(relativePath string) string {
+	return filepath.Join(m.Path, relativePath, segmentDataFile)
+}
+
 func segmentAgedOut(s Segment, now time.Time, maxDuration time.Duration) bool {
 	return s.Timestamp.Add(maxDuration).Before(now)
 }
 
-func segmentSizedOut(s Segment, maxBytes int64) (bool, error) {
-	size, err := segmentSize(s)
+func segmentSizedOut(path string, maxBytes int64) (bool, error) {
+	size, err := segmentSize(path)
 	return size > maxBytes, err
 }
 
-func segmentSize(s Segment) (int64, error) {
-	f, err := os.Stat(s.Path + "/000000.vlog")
+func segmentSize(path string) (int64, error) {
+	f, err := os.Stat(path)
 	if err != nil {
 		return 0, err
 	}
 
-	return f.Size(), nil
+	f2, err := os.Stat(path + "-journal")
+	if err != nil {
+		return 0, err
+	}
+
+	return f.Size() + f2.Size(), nil
 }

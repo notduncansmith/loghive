@@ -32,6 +32,7 @@ func NewHive(path string, config Config) (*Hive, error) {
 		return nil, err
 	}
 	for _, d := range config.WritableDomains {
+		logrus.Infof("Found %v segment(s) for writable domain %v: %v", len(sm.SegmentMap[d]), d, sm.SegmentMap[d])
 		if sm.SegmentMap[d] == nil {
 			s, err := sm.CreateSegment(d, timestamp())
 			if err != nil {
@@ -61,8 +62,16 @@ func (h *Hive) Enqueue(domain string, line []byte) (bbq.Callback, error) {
 	return h.incoming.Enqueue(log), nil
 }
 
-// FailToLogThisLine is an ugly hack that exists because I can't figure out how to force a write failure during tests.
-const FailToLogThisLine = "!~!~!~_internal_::thislogshouldfail👎"
+// MarkSegmentForDeletion will mark a segment to deleted during the next DeleteMarkedSegments
+func (h *Hive) MarkSegmentForDeletion(s Segment) error {
+	return h.sm.MarkSegmentForDeletion(s)
+}
+
+// SyntheticFailureFlush is an ugly hack that exists because I can't figure out how to force a failure during tests otherwise.
+const SyntheticFailureFlush = "!~!~!~_internal_::thislogshouldfail👎Flush"
+
+// SyntheticFailureWrite is an ugly hack that exists because I can't figure out how to force a failure during tests otherwise.
+const SyntheticFailureWrite = "!~!~!~_internal_::thislogshouldfail👎Write"
 
 // flush converts bbq interface{} items to *Logs and writes them, then creates any needed segments
 func (h *Hive) flush(items []interface{}) error {
@@ -72,6 +81,7 @@ func (h *Hive) flush(items []interface{}) error {
 		logs = append(logs, log)
 	}
 	logrus.Debugf("Flushing %v logs", len(logs))
+
 	err := h.sm.Write(logs)
 	if err != nil {
 		logrus.Errorf("Error flushing logs %v", err)
@@ -85,10 +95,8 @@ func (h *Hive) flush(items []interface{}) error {
 	}
 
 	// warning: ugly hack
-	if h.config.InternalLogLevel == logrus.DebugLevel {
-		if string(logs[0].Line) == FailToLogThisLine {
-			return errors.New("Synthetic flush failure")
-		}
+	if h.config.InternalLogLevel == logrus.DebugLevel && string(logs[0].Line) == SyntheticFailureFlush {
+		return errors.New("Synthetic flush failure")
 	}
 
 	return nil

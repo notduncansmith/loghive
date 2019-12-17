@@ -4,9 +4,11 @@
 
 - [x] Trim unused functionality
 
-- [ ] Replace BadgerDB with SQLite for better reliability
+- [x] Replace BadgerDB with SQLite for better reliability
 
-- [ ] 95% test coverage (or better)
+- [x] 90% test coverage (or better)
+
+- [ ] Baseline benchmarks 10k * (500b logs, 1kb logs, 10kb logs)
 
 - [ ] Better usage examples
 
@@ -40,7 +42,7 @@
 
     - [x] Segment creation during flush
 
-    - [ ] Querying across multiple domains/segments
+    - [x] Querying across multiple domains/segments
 
 - [ ] Untested Sad Paths:
 
@@ -48,9 +50,7 @@
 
     - [x] Err flushing logs
 
-    - [ ] Err writing log KVs
-
-        - This one is tricky, I'm having trouble forcing BadgerDB to return an error from a write. Open issue: https://github.com/dgraph-io/badger/issues/1159
+    - [x] Err writing log KVs
 
     - [x] Err opening DB
 

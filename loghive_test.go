@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"sync"
 	"testing"
 	"time"
 
@@ -24,7 +23,7 @@ func expectError(t *testing.T, task string, err error) {
 }
 
 func expectSegmentCount(t *testing.T, h *Hive, assertion, domain string, count int) {
-	segmentCount := len(h.sm.SegmentMap["test"])
+	segmentCount := len(h.sm.SegmentMap[domain])
 	if segmentCount != count {
 		t.Errorf("%v: expected exactly %v segment(s), found %v", assertion, count, segmentCount)
 	}
@@ -36,6 +35,7 @@ type logstub struct {
 }
 
 func withHive(t *testing.T, path string, domains []string, f func(*Hive)) *Hive {
+	logrus.SetLevel(logrus.DebugLevel)
 	os.RemoveAll(path)
 	defer os.RemoveAll(path)
 	config := DefaultConfig
@@ -53,20 +53,17 @@ func withHive(t *testing.T, path string, domains []string, f func(*Hive)) *Hive 
 }
 
 func stubLogs(t *testing.T, h *Hive, stubs []logstub) {
-	wg := sync.WaitGroup{}
-
+	cbs := []chan error{}
 	for _, stub := range stubs {
-		wg.Add(1)
 		flushed, err := h.Enqueue(stub.domain, []byte(stub.line))
 		expectSuccess(t, "enqueue message", err)
-		go func(f chan error) {
-			err := <-f
-			expectSuccess(t, "write message", err)
-			wg.Done()
-		}(flushed)
+		cbs = append(cbs, flushed)
 	}
 
-	wg.Wait()
+	for _, flushed := range cbs {
+		err := <-flushed
+		expectSuccess(t, "write message", err)
+	}
 }
 
 func checkLogs(t *testing.T, h *Hive, q *Query, expected []logstub) {
@@ -103,9 +100,18 @@ func TestCreate(t *testing.T) {
 		os.Mkdir("./fixtures/unwritable", 0400)
 		defer os.Remove("./fixtures/unwritable")
 		h, err := NewHive("./fixtures/unwritable", DefaultConfig)
-		if h != nil || err == nil {
+		if err == nil {
 			t.Error("Should not be able to create hive at unwritable dir")
 		}
+	})
+}
+
+func TestSegmentDeletion(t *testing.T) {
+	withHive(t, "./fixtures/deletion", []string{"test"}, func(h *Hive) {
+		h.config.SegmentMaxDuration = time.Second
+		time.Sleep(time.Second)
+		expectSegmentCount(t, h, "deleted segments", "test", 1)
+		h.Enqueue("test", []byte("hello"))
 	})
 }
 
@@ -148,22 +154,53 @@ func TestRoundtripQuery(t *testing.T) {
 }
 
 func TestRoundtripQueryMulti(t *testing.T) {
-	withHive(t, "./fixtures/roundtrip_query", []string{"test1", "test2"}, func(h *Hive) {
-		h.config.SegmentMaxBytes = 1
+	oneMinuteAgo := timestamp().Add(time.Duration(-1) * time.Minute)
+
+	withHive(t, "./fixtures/roundtrip_query_multi", []string{"test1", "test2"}, func(h *Hive) {
+		h.config.SegmentMaxDuration = time.Second
+
 		stubLogs(t, h, []logstub{
 			logstub{"test1", "foo"},
 			logstub{"test2", "foo"},
 		})
+
+		q1 := NewQuery([]string{"test1"}, oneMinuteAgo, timestamp(), FilterMatchAll())
+		checkLogs(t, h, q1, []logstub{
+			logstub{"test1", "foo"},
+		})
+
+		q2 := NewQuery([]string{"test1", "test2"}, oneMinuteAgo, timestamp(), FilterMatchAll())
+		checkLogs(t, h, q2, []logstub{
+			logstub{"test1", "foo"},
+			logstub{"test2", "foo"},
+		})
+	})
+
+	withHive(t, "./fixtures/roundtrip_query_multi", []string{"test1", "test2"}, func(h *Hive) {
+		h.config.SegmentMaxDuration = time.Second
+
+		stubLogs(t, h, []logstub{
+			logstub{"test1", "foo"},
+			logstub{"test2", "foo"},
+		})
+
+		time.Sleep(time.Second)
 
 		stubLogs(t, h, []logstub{
 			logstub{"test1", "bar"},
 			logstub{"test2", "bar"},
 		})
 
-		oneMinuteAgo := timestamp().Add(time.Duration(-1) * time.Minute)
-		q := NewQuery([]string{"test"}, oneMinuteAgo, timestamp(), FilterMatchAll())
+		time.Sleep(time.Second)
 
-		checkLogs(t, h, q, []logstub{
+		q1 := NewQuery([]string{"test1"}, oneMinuteAgo, timestamp(), FilterMatchAll())
+		checkLogs(t, h, q1, []logstub{
+			logstub{"test1", "foo"},
+			logstub{"test1", "bar"},
+		})
+
+		q2 := NewQuery([]string{"test1", "test2"}, oneMinuteAgo, timestamp(), FilterMatchAll())
+		checkLogs(t, h, q2, []logstub{
 			logstub{"test1", "foo"},
 			logstub{"test2", "foo"},
 			logstub{"test1", "bar"},
@@ -192,7 +229,7 @@ func TestErrWhileFlushing(t *testing.T) {
 	logrus.SetLevel(logrus.DebugLevel)
 
 	withHive(t, "./fixtures/err_while_flushing", []string{"test"}, func(h *Hive) {
-		flushed, err := h.Enqueue("test", []byte(FailToLogThisLine))
+		flushed, err := h.Enqueue("test", []byte(SyntheticFailureFlush))
 		expectSuccess(t, "enqueue", err)
 
 		for e := range flushed {
@@ -248,7 +285,7 @@ func TestSegmentCreationOnFlushAgeOut(t *testing.T) {
 func TestSegmentCreationOnFlushSizeOutLogFailure(t *testing.T) {
 	withHive(t, "./fixtures/err_during_create_on_flush", []string{"test"}, func(h *Hive) {
 		h.config.SegmentMaxBytes = 512
-		flushed, _ := h.Enqueue("test", []byte(FailToLogThisLine))
+		flushed, _ := h.Enqueue("test", []byte(SyntheticFailureFlush))
 		err := <-flushed
 		expectError(t, "write doomed log", err)
 		expectSegmentCount(t, h, "should still be 1 segment", "test", 1)
@@ -259,10 +296,18 @@ func TestSegmentCreationOnFlushAgeOutLogFailure(t *testing.T) {
 	withHive(t, "./fixtures/err_during_create_on_flush", []string{"test"}, func(h *Hive) {
 		h.config.SegmentMaxDuration = time.Second
 		time.Sleep(time.Second)
-		flushed, _ := h.Enqueue("test", []byte(FailToLogThisLine))
+		flushed, _ := h.Enqueue("test", []byte(SyntheticFailureFlush))
 		err := <-flushed
 		expectError(t, "write doomed log", err)
 		expectSegmentCount(t, h, "should still age out to 2 segments after failed flush", "test", 2)
+	})
+}
+
+func TestSegmentWriteFailure(t *testing.T) {
+	withHive(t, "./fixtures/err_during_write", []string{"test"}, func(h *Hive) {
+		flushed, _ := h.Enqueue("test", []byte(SyntheticFailureWrite))
+		err := <-flushed
+		expectError(t, "write doomed log", err)
 	})
 }
 
@@ -271,7 +316,7 @@ func TestNeededSegmentsCreationError(t *testing.T) {
 	// error when I believe it should (writing to missing file). Open issue: https://github.com/dgraph-io/badger/issues/1159
 	withHive(t, "./fixtures/err_during_create_on_flush", []string{"test"}, func(h *Hive) {
 		h.config.SegmentMaxDuration = time.Second
-		sh("rm", "-rf", h.sm.SegmentMap["test"][0].Path)
+		sh("rm", "-rf", h.sm.segmentPath(h.sm.SegmentMap["test"][0].Path))
 		time.Sleep(time.Second)
 		flushed, _ := h.Enqueue("test", []byte("foo"))
 		err := <-flushed

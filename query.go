@@ -60,7 +60,7 @@ func (h *Hive) Query(q *Query) error {
 				for _, log := range chunk {
 					copy := log // pointers to `log` variable will point to new iteration values
 					logrus.Debugf("Filtering log: %v", log)
-					if q.Filter(&log) {
+					if q.Filter(&copy) {
 						logrus.Debugf("Log accepted: [%v] %v", i, log)
 						unorderedDomainResultChans[i] <- &copy
 					} else {

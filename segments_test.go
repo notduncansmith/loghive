@@ -5,11 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dgraph-io/badger"
 	"github.com/sirupsen/logrus"
 )
 
 func withSM(t *testing.T, path string, f func([]Segment, *SegmentManager)) {
+	logrus.SetLevel(logrus.DebugLevel)
 	sm := NewSegmentManager(path)
 	segments, err := sm.ScanDir()
 
@@ -41,7 +41,12 @@ func TestSegmentManagerCreate(t *testing.T) {
 		}
 		s, err := sm.CreateSegment("test", epoch)
 		expectSuccess(t, "create Segment", err)
-		if s.Path != "fixtures/sm_create/.data/segment-2013-02-05T00:00:00Z" {
+		var empty Segment
+		if s == empty {
+			t.Error("Unexpected empty segment")
+			return
+		}
+		if s.Path != "segment-2013-02-05T00:00:00Z" {
 			t.Errorf("Incorrect segment path %v", s.Path)
 		}
 		if s.Domain != "test" {
@@ -54,17 +59,29 @@ func TestSegmentManagerCreate(t *testing.T) {
 }
 
 func TestSegmentManagerScan(t *testing.T) {
-	withSM(t, "./fixtures/sm_scan", func(segments []Segment, sm *SegmentManager) {
+	withTmp(t, "./fixtures/sm_scan", func(_ []Segment, sm *SegmentManager) {
+		epoch1, _ := time.Parse("2006-Jan-02", "2013-Feb-05")
+		epoch2, _ := time.Parse("2006-Jan-02", "2019-Oct-31")
+		epoch3, _ := time.Parse("2006-Jan-02", "2019-Dec-15")
+
+		sm.CreateSegment("test", epoch1.UTC())
+		sm.CreateSegment("test", epoch2.UTC())
+		sm.CreateSegment("otherdomain", epoch3.UTC())
+
+		segments, err := sm.ScanDir()
+		expectSuccess(t, "scan dir", err)
+
 		if len(segments) != 3 {
-			t.Errorf("Expected 2 segments, got %v", segments)
+			t.Errorf("Expected 3 segments, got %v", segments)
 		}
+
 		s0 := segments[0]
-		if s0.Path != "fixtures/sm_scan/.data/segment-2013-02-05T00:00:00Z" {
+		if s0.Path != "segment-2013-02-05T00:00:00Z" {
 			t.Errorf("Incorrect segment path %v", s0.Path)
 		}
 
 		s1 := segments[1]
-		if s1.Path != "fixtures/sm_scan/.data/segment-2019-12-11T06:47:11.072339Z" {
+		if s1.Path != "segment-2019-10-31T00:00:00Z" {
 			t.Errorf("Incorrect segment path %v", s1.Path)
 		}
 
@@ -80,18 +97,29 @@ func TestSegmentManagerScan(t *testing.T) {
 	os.RemoveAll("./fixtures/sm_scan_malformed")
 	defer os.RemoveAll("./fixtures/sm_scan_malformed")
 
-	os.MkdirAll("./fixtures/sm_scan_malformed/.data/segment-asdf", 0700)
+	os.MkdirAll("./fixtures/sm_scan_malformed/segment-asdf", 0700)
 	sm := NewSegmentManager("./fixtures/sm_scan_malformed")
 	segments, err := sm.ScanDir()
+	if len(segments) > 0 {
+		t.Errorf("Expected to find 0 segments, got %v %v", err, segments)
+	}
+
+	os.RemoveAll("./fixtures/sm_scan_malformed/segment-asdf")
+	os.MkdirAll("./fixtures/sm_scan_malformed/segment-asdf", 0700)
+	os.Create("./fixtures/sm_scan_malformed/segment-asdf/data.db")
+
+	sm = NewSegmentManager("./fixtures/sm_scan_malformed")
+	segments, err = sm.ScanDir()
 	if err == nil || len(segments) > 0 {
 		t.Errorf("Expected to find 0 segments, got %v %v", err, segments)
 	}
 
-	os.RemoveAll("./fixtures/sm_scan_malformed/.data/segment-asdf")
-	os.Create("./fixtures/sm_scan_malformed/.data/segment-asdf")
+	os.RemoveAll("./fixtures/sm_scan_malformed/segment-asdf")
+	os.MkdirAll("./fixtures/sm_scan_malformed/notsegment", 0700)
+
 	sm = NewSegmentManager("./fixtures/sm_scan_malformed")
 	segments, err = sm.ScanDir()
-	if err == nil || len(segments) > 0 {
+	if len(segments) > 0 {
 		t.Errorf("Expected to find 0 segments, got %v %v", err, segments)
 	}
 }
@@ -123,17 +151,23 @@ func TestSegmentManagerWrite(t *testing.T) {
 func TestSegmentManagerRoundtrip(t *testing.T) {
 	withTmp(t, "./fixtures/sm_roundtrip", func(_ []Segment, sm *SegmentManager) {
 		epoch := timestamp()
-		e1 := epoch.Add(time.Duration(-2) * time.Hour)
-		e2 := epoch.Add(time.Duration(-1) * time.Hour)
-		test1, err := sm.CreateSegment("test1", e1)
-		expectSuccess(t, "create segment test1", err)
-		test2, err := sm.CreateSegment("test2", e2)
+		e1 := epoch.Add(time.Duration(-3) * time.Hour)
+		e2 := epoch.Add(time.Duration(-2) * time.Hour)
+		e3 := epoch.Add(time.Duration(-1) * time.Hour)
+
+		test11, err := sm.CreateSegment("test1", e1)
+		expectSuccess(t, "create segment test1:1", err)
+
+		test12, err := sm.CreateSegment("test1", e2)
+		expectSuccess(t, "create segment test1:2", err)
+
+		test2, err := sm.CreateSegment("test2", e3)
 		expectSuccess(t, "create segment test2", err)
 
-		logrus.Println("Created segments", test1, test2)
+		logrus.Println("Created segments", test11, test12, test2)
 
-		log1 := Log{"test1", e1.Add(time.Minute), []byte("hello")}
-		log2 := Log{"test2", e2.Add(time.Minute), []byte("hello")}
+		log1 := Log{"test1", e2.Add(time.Minute), []byte("hello")}
+		log2 := Log{"test2", e3.Add(time.Minute), []byte("hello")}
 
 		err = sm.Write([]*Log{&log1, &log2})
 
@@ -184,28 +218,28 @@ func TestSegmentManagerRoundtrip(t *testing.T) {
 
 func TestSegmentSizedOut(t *testing.T) {
 	withTmp(t, "./fixtures/sm_sized_out", func(_ []Segment, sm *SegmentManager) {
-		// note: overhead on files is ~280 bytes
+		// note: overhead on files is ~512 bytes
 		s, err := sm.CreateSegment("test", timestamp())
 		expectSuccess(t, "create segment", err)
 		l := NewLog("test", []byte("1"))
 		expectSuccess(t, "write logs", sm.Write([]*Log{l}))
 
 		maxBytes := int64(256) // will size out after overhead
-		sizedOut, err := segmentSizedOut(s, maxBytes)
+		sizedOut, err := segmentSizedOut(sm.segmentPath(s.Path), maxBytes)
 		expectSuccess(t, "check segment size", err)
 
 		if !sizedOut {
-			size, _ := segmentSize(s)
-			t.Errorf("Expected segment %v (%v bytes) to be sized out (%v bytes)", s, size, maxBytes)
+			size, err := segmentSize(sm.segmentPath(s.Path))
+			t.Errorf("Expected segment %v (%v bytes) to be sized out (%v bytes) %v", s, size, maxBytes, err)
 		}
 
-		maxBytes = int64(300)
-		sizedOut, err = segmentSizedOut(s, maxBytes)
+		maxBytes = int64(1024)
+		sizedOut, err = segmentSizedOut(sm.segmentPath(s.Path), maxBytes)
 		expectSuccess(t, "checking segment size", err)
 
 		if sizedOut {
-			size, _ := segmentSize(s)
-			t.Errorf("Expected segment %v (%v bytes) not to be sized out (%v bytes)", s, size, maxBytes)
+			size, err := segmentSize(sm.segmentPath(s.Path))
+			t.Errorf("Expected segment %v (%v bytes) not to be sized out (%v bytes) %v", s, size, maxBytes, err)
 		}
 	})
 }
@@ -225,42 +259,6 @@ func TestSegmentAgedOut(t *testing.T) {
 
 		if segmentAgedOut(s, t2, 61*time.Minute) {
 			t.Errorf("Expected segment %v not to age out", s)
-		}
-	})
-}
-
-func TestSegmentMalformedKey(t *testing.T) {
-	logrus.SetLevel(logrus.DebugLevel)
-	// Basically just make sure nothing breaks, we skip malformed keys by design
-	withTmp(t, "./fixtures/sm_malformed_key", func(_ []Segment, sm *SegmentManager) {
-		t1 := timestamp().Add(-1 * time.Hour)
-		t2 := timestamp().Add(-1 * time.Minute)
-
-		s, _ := sm.CreateSegment("test", t1)
-		db, _ := sm.openDB(s.Path)
-
-		db.Update(func(txn *badger.Txn) error {
-			txn.Set([]byte("foo"), []byte("bar"))
-			return nil
-		})
-
-		err := sm.Write([]*Log{NewLog("test", []byte("test"))})
-		expectSuccess(t, "write logs", err)
-
-		resultChans := sm.Iterate([]string{"test"}, t2, timestamp(), 10, 10)
-		resultCount := 0
-
-		for _, ch := range resultChans {
-			for chunk := range ch {
-				resultCount++
-				if len(chunk) != 1 {
-					t.Errorf("Expected to get exactly 1 log, got %v", chunk)
-				}
-			}
-		}
-
-		if resultCount != 1 {
-			t.Errorf("Expected to get exactly 1 chunk, got %v", resultCount)
 		}
 	})
 }
