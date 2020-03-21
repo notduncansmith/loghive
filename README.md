@@ -2,7 +2,7 @@
 
 [![GoDoc](https://godoc.org/github.com/notduncansmith/loghive?status.svg)](https://godoc.org/github.com/notduncansmith/loghive) [![Build Status](https://travis-ci.com/notduncansmith/loghive.svg?branch=master)](https://travis-ci.com/notduncansmith/loghive) [![codecov](https://codecov.io/gh/notduncansmith/loghive/branch/master/graph/badge.svg)](https://codecov.io/gh/notduncansmith/loghive)
 
-Loghive is an engine for storing and retrieving logs, built on [Badger](https://github.com/dgraph-io/badger).
+Loghive is an engine for storing and retrieving logs, built on SQLite.
 
 ## Why
 
@@ -12,7 +12,7 @@ Because storing and querying logs should be fast and easy, and it currently isn'
 
 A Domain is a label that represents a single log history.
 
-A Segment is a Badger database that stores a contiguous chunk of a Domain's history starting from a point in time. Logs in a Segment are keyed by timestamp.
+A Segment is a SQLite database that stores a contiguous chunk of a Domain's history starting from a point in time. Logs in a Segment are keyed by timestamp.
 
 A Log is a struct with 3 fields:
 
